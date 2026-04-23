@@ -73,6 +73,8 @@ class WorkflowTest(unittest.TestCase):
         store = JsonStateStore(self.state_dir)
         batches = store.list("drafts")
         self.assertEqual(len(batches), 1)
+        self.assertTrue(batches[0]["batch_id"].startswith("b"))
+        self.assertEqual([option["draft_id"] for option in batches[0]["options"]], ["d1", "d2", "d3"])
         self.assertEqual(len(batches[0]["options"]), 3)
         texts = [option["text"] for option in batches[0]["options"]]
         self.assertTrue(any("PhD" in text or "research" in text for text in texts))

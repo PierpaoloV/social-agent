@@ -15,6 +15,14 @@ def make_id(prefix: str) -> str:
     return f"{prefix}_{uuid4().hex[:12]}"
 
 
+def make_short_id(prefix: str, length: int = 4) -> str:
+    return f"{prefix}{uuid4().hex[:length]}"
+
+
+def make_option_id(index: int) -> str:
+    return f"d{index}"
+
+
 class SourceType(str, Enum):
     TELEGRAM = "telegram_inbox"
     GITHUB = "github_milestone"

@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 
 from .config import ProfileConfig
-from .models import DraftBatch, DraftKind, DraftOption, IdeaCandidate, PreferenceSnapshot, make_id, utc_now_iso
+from .models import DraftBatch, DraftKind, DraftOption, IdeaCandidate, PreferenceSnapshot, make_id, make_option_id, make_short_id, utc_now_iso
 from .openai_client import OpenAIClient
 from .policies import is_language_allowed, is_thread_allowed
 
@@ -16,12 +16,13 @@ class DraftGenerator:
     dry_run: bool = False
 
     def generate_batch(self, ideas: list[IdeaCandidate], cycle_key: str, scheduled_for: str, preference_snapshot: PreferenceSnapshot | None = None) -> DraftBatch:
-        batch_id = make_id("batch")
+        batch_id = make_short_id("b")
         selected = self._pad_ideas(ideas[:3])
         options = self._generate_with_model(batch_id, selected, preference_snapshot)
         if not options:
             options = self._generate_heuristic(batch_id, selected)
         options = self._pad_options(batch_id, selected, options)
+        options = self._normalize_option_ids(batch_id, options)
         batch = DraftBatch(
             batch_id=batch_id,
             created_at=utc_now_iso(),
@@ -32,6 +33,14 @@ class DraftGenerator:
         )
         batch.validate()
         return batch
+
+    def _normalize_option_ids(self, batch_id: str, options: list[DraftOption]) -> list[DraftOption]:
+        normalized: list[DraftOption] = []
+        for index, option in enumerate(options[:3], start=1):
+            option.draft_id = make_option_id(index)
+            option.batch_id = batch_id
+            normalized.append(option)
+        return normalized
 
     def _pad_ideas(self, ideas: list[IdeaCandidate]) -> list[IdeaCandidate]:
         if not ideas:
@@ -65,7 +74,7 @@ class DraftGenerator:
             source_idea = ideas[len(padded) % len(ideas)]
             padded.append(
                 DraftOption(
-                    draft_id=make_id("draft"),
+                    draft_id="pending",
                     batch_id=batch_id,
                     kind=DraftKind.ORIGINAL.value,
                     topic_class=source_idea.topic_class,
@@ -106,7 +115,7 @@ class DraftGenerator:
                 thread_posts = []
             options.append(
                 DraftOption(
-                    draft_id=make_id("draft"),
+                    draft_id="pending",
                     batch_id=batch_id,
                     kind=draft.get("kind", DraftKind.ORIGINAL.value),
                     topic_class=draft.get("topic_class", ideas[0].topic_class if ideas else "general"),
@@ -133,7 +142,7 @@ class DraftGenerator:
             thread_posts: list[str] = []
             options.append(
                 DraftOption(
-                    draft_id=make_id("draft"),
+                    draft_id="pending",
                     batch_id=batch_id,
                     kind=DraftKind.ORIGINAL.value,
                     topic_class=idea.topic_class,

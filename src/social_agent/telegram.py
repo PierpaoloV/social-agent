@@ -84,22 +84,34 @@ def format_draft_batch_message(batch: dict[str, Any]) -> str:
             [
                 f"*Option* `{option['draft_id']}`",
                 f"Kind: `{option['kind']}` | Language: `{option['language']}` | Topic: `{option['topic_class']}`",
-                f"Sources: {', '.join(option['source_provenance'])}",
+                f"Sources: {_format_sources(option['source_provenance'])}",
                 option["text"],
                 "",
             ]
         )
     lines.extend(
         [
-            "Commands:",
-            "`/approve <batch_id> <draft_id>`",
-            "`/reject <batch_id> <draft_id> <tag1,tag2> | optional note`",
-            "`/edit <batch_id> <draft_id> | edited text`",
-            "`/regenerate <batch_id>`",
-            "`/skip <batch_id>`",
+            "Quick actions:",
+            f"`/approve {batch['batch_id']} d1`",
+            f"`/reject {batch['batch_id']} d1 too generic,weak hook | optional note`",
+            f"`/edit {batch['batch_id']} d1 | edited text`",
+            f"`/regenerate {batch['batch_id']}`",
+            f"`/skip {batch['batch_id']}`",
         ]
     )
     return "\n".join(lines)
+
+
+def _format_sources(provenance: list[str]) -> str:
+    cleaned: list[str] = []
+    for item in provenance:
+        if item.startswith("inbox"):
+            continue
+        if item.startswith("variation_"):
+            cleaned.append(item.replace("_", " "))
+            continue
+        cleaned.append(item)
+    return ", ".join(cleaned) if cleaned else "internal source"
 
 
 def parse_review_command(text: str) -> dict[str, Any] | None:
@@ -128,4 +140,3 @@ def parse_review_command(text: str) -> dict[str, Any] | None:
     if len(parts) < 2 or not edited_text.strip():
         raise ValueError("edit command requires batch_id, draft_id, and edited text")
     return {"action": command_name, "batch_id": parts[0], "draft_id": parts[1], "edited_text": edited_text.strip()}
-
