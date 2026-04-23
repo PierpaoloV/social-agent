@@ -83,7 +83,7 @@ def format_draft_batch_message(batch: dict[str, Any]) -> str:
         lines.extend(
             [
                 f"*Option* `{option['draft_id']}`",
-                f"Kind: `{option['kind']}` | Language: `{option['language']}` | Topic: `{option['topic_class']}`",
+                f"Kind: `{option['kind']}` | Language: `{option['language']}` | Topic: `{option['topic_class']}` | Model: `{option['model_name']}`",
                 f"Sources: {_format_sources(option['source_provenance'])}",
                 option["text"],
                 "",

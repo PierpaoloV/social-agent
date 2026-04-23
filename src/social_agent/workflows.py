@@ -115,6 +115,8 @@ def run_draft_cycle(force: bool = False) -> dict[str, Any]:
         scheduled_for=f"{current_cycle_key(profile.timezone)}T{profile.publish_window}",
         preference_snapshot=preference_snapshot,
     )
+    if not runtime.openai_api_key and not runtime.dry_run:
+        _notify(runtime, "OpenAI key is missing in the workflow environment, so this batch used the heuristic fallback instead of gpt-5.4-mini.")
     store.put("drafts", batch.batch_id, batch.to_dict())
     _mark_used_inbox_items(batch.idea_ids, store)
     for option in batch.options:
@@ -251,6 +253,7 @@ def _apply_review_command(command: dict[str, Any], profile: ProfileConfig, runti
             raise ValueError("Batch already regenerated once")
         batch["regenerate_count"] += 1
         store.put("drafts", batch["batch_id"], batch)
+        _notify(runtime, f"Regenerating `{batch['batch_id']}` now. A fresh batch will arrive in this chat.")
         run_draft_cycle(force=True)
         action = ApprovalAction(
             action_id=make_id("action"),
@@ -264,6 +267,7 @@ def _apply_review_command(command: dict[str, Any], profile: ProfileConfig, runti
     if action_name == ActionType.SKIP.value:
         batch["status"] = "skipped"
         store.put("drafts", batch["batch_id"], batch)
+        _notify(runtime, f"Skipped batch `{batch['batch_id']}`.")
         action = ApprovalAction(
             action_id=make_id("action"),
             action_type=ActionType.SKIP.value,
@@ -277,9 +281,13 @@ def _apply_review_command(command: dict[str, Any], profile: ProfileConfig, runti
     if not option:
         raise ValueError(f"Unknown draft_id: {command['draft_id']}")
     if action_name == ActionType.APPROVE.value:
-        _queue_or_publish(option, runtime, store)
+        publication_status = _queue_or_publish(option, runtime, store)
         batch["status"] = "approved"
         store.put("drafts", batch["batch_id"], batch)
+        if publication_status == "published":
+            _notify(runtime, f"Approved `{option['draft_id']}` from `{batch['batch_id']}` and published it immediately.")
+        else:
+            _notify(runtime, f"Approved `{option['draft_id']}` from `{batch['batch_id']}`. It is queued for the next publish window.")
         action = ApprovalAction(
             action_id=make_id("action"),
             action_type=ActionType.APPROVE.value,
@@ -291,6 +299,7 @@ def _apply_review_command(command: dict[str, Any], profile: ProfileConfig, runti
         store.put("approvals", action.action_id, action.to_dict())
         return
     if action_name == ActionType.REJECT.value:
+        _notify(runtime, f"Logged rejection for `{option['draft_id']}` from `{batch['batch_id']}`.")
         action = ApprovalAction(
             action_id=make_id("action"),
             action_type=ActionType.REJECT.value,
@@ -306,6 +315,7 @@ def _apply_review_command(command: dict[str, Any], profile: ProfileConfig, runti
     before = option["text"]
     option["text"] = edited_text
     store.put("drafts", batch["batch_id"], batch)
+    _notify(runtime, f"Saved your edit for `{option['draft_id']}` in `{batch['batch_id']}`.")
     action = ApprovalAction(
         action_id=make_id("action"),
         action_type=ActionType.EDIT.value,
@@ -318,7 +328,7 @@ def _apply_review_command(command: dict[str, Any], profile: ProfileConfig, runti
     store.put("approvals", action.action_id, action.to_dict())
 
 
-def _queue_or_publish(option: dict[str, Any], runtime: RuntimeSettings, store: JsonStateStore) -> None:
+def _queue_or_publish(option: dict[str, Any], runtime: RuntimeSettings, store: JsonStateStore) -> str:
     publication = PublishedPost(
         publication_id=make_id("pub"),
         draft_id=option["draft_id"],
@@ -343,6 +353,7 @@ def _queue_or_publish(option: dict[str, Any], runtime: RuntimeSettings, store: J
         publication.published_at = utc_now_iso()
         publication.external_post_id = response.get("data", {}).get("id")
     store.put("publications", publication.publication_id, publication.to_dict())
+    return publication.status
 
 
 def _build_engagement_digest(runtime: RuntimeSettings) -> list[EngagementSuggestion]:
