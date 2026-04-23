@@ -111,3 +111,19 @@ The public repo secret was saved as `OPENAI_APY_KEY` instead of `OPENAI_API_KEY`
 - Draft generation fell back to the heuristic path instead of `gpt-5.4-mini`.
 - Telegram batches looked repetitive and model fallback was easy to misdiagnose as a code issue.
 - Future troubleshooting should check secret names first whenever a configured runtime variable appears blank in Actions logs.
+
+## 2026-04-24 (model output normalization)
+
+### Decision
+Normalize loose draft-kind labels from the LLM before validation instead of assuming the model will always emit the internal enum values.
+
+### Status
+Accepted
+
+### Rationale
+Live testing with the correctly wired OpenAI key showed the model returning `single_post`, which is semantically valid for the product but did not match the strict internal `DraftKind` enum and caused the draft cycle to fail.
+
+### Impact
+- LLM outputs such as `single_post`, `post`, and `quote_tweet` are now mapped to supported internal kinds.
+- Unexpected kind labels now degrade safely to `original` rather than crashing the workflow.
+- The system is more resilient to harmless wording drift in model-generated JSON.

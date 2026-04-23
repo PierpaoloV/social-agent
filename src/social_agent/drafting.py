@@ -108,6 +108,7 @@ class DraftGenerator:
         options: list[DraftOption] = []
         for draft in drafts[:3]:
             language = draft.get("language", "en")
+            kind = self._normalize_kind(draft.get("kind"))
             thread_posts = list(draft.get("thread_posts", []))
             if not is_language_allowed(self.profile, draft.get("kind", DraftKind.ORIGINAL.value), language):
                 language = "en"
@@ -117,7 +118,7 @@ class DraftGenerator:
                 DraftOption(
                     draft_id="pending",
                     batch_id=batch_id,
-                    kind=draft.get("kind", DraftKind.ORIGINAL.value),
+                    kind=kind,
                     topic_class=draft.get("topic_class", ideas[0].topic_class if ideas else "general"),
                     language=language,
                     text=draft["text"],
@@ -129,6 +130,23 @@ class DraftGenerator:
                 )
             )
         return options
+
+    def _normalize_kind(self, raw_kind: str | None) -> str:
+        normalized = (raw_kind or DraftKind.ORIGINAL.value).strip().lower()
+        alias_map = {
+            "single_post": DraftKind.ORIGINAL.value,
+            "single": DraftKind.ORIGINAL.value,
+            "post": DraftKind.ORIGINAL.value,
+            "original_post": DraftKind.ORIGINAL.value,
+            "tweet": DraftKind.ORIGINAL.value,
+            "reply_post": DraftKind.REPLY.value,
+            "quote": DraftKind.QUOTE_POST.value,
+            "quote_tweet": DraftKind.QUOTE_POST.value,
+        }
+        normalized = alias_map.get(normalized, normalized)
+        if normalized not in {item.value for item in DraftKind}:
+            return DraftKind.ORIGINAL.value
+        return normalized
 
     def _generate_heuristic(self, batch_id: str, ideas: list[IdeaCandidate]) -> list[DraftOption]:
         options: list[DraftOption] = []

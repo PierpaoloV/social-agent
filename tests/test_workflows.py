@@ -80,6 +80,39 @@ class WorkflowTest(unittest.TestCase):
         texts = [option["text"] for option in batches[0]["options"]]
         self.assertTrue(any("PhD" in text or "research" in text for text in texts))
 
+    def test_model_single_post_kind_is_normalized_to_original(self) -> None:
+        update = TelegramUpdate(
+            update_id=20,
+            message_id=120,
+            chat_id=12345,
+            text="A note about shipping a practical AI workflow",
+            caption=None,
+            photo_file_id=None,
+            raw={},
+        )
+        with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[update]):
+            process_telegram_updates()
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False):
+            with patch(
+                "social_agent.openai_client.OpenAIClient.generate_json",
+                return_value={
+                    "drafts": [
+                        {
+                            "kind": "single_post",
+                            "language": "en",
+                            "topic_class": "project_milestone",
+                            "text": "Shipping practical AI systems is mostly about removing friction.",
+                            "thread_posts": [],
+                        }
+                    ]
+                },
+            ):
+                result = run_draft_cycle(force=True)
+        self.assertEqual(result["status"], "ok")
+        store = JsonStateStore(self.state_dir)
+        batch = store.list("drafts")[0]
+        self.assertEqual(batch["options"][0]["kind"], DraftKind.ORIGINAL.value)
+
     def test_edit_before_approve_is_stored_for_learning(self) -> None:
         update = TelegramUpdate(
             update_id=3,
