@@ -5,6 +5,7 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
 
 from .config import ProfileConfig, SeedsConfig, load_profile_config, load_seeds_config
 from .drafting import DraftGenerator
@@ -352,7 +353,12 @@ def _build_engagement_digest(runtime: RuntimeSettings) -> list[EngagementSuggest
     suggestions: list[EngagementSuggestion] = []
     queries = external_query_budget(seeds, strict_read_budget=True)
     for index, query in enumerate(queries[:3]):
-        payload = x_client.search_recent_posts(query, max_results=2)
+        try:
+            payload = x_client.search_recent_posts(query, max_results=2)
+        except HTTPError as exc:
+            if exc.code in {401, 402, 403, 429}:
+                return []
+            raise
         for tweet in payload.get("data", [])[:1]:
             draft_text = f"Interesting angle on {query}. The part I care about most is whether this survives contact with real workflows."
             suggestions.append(

@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.error import HTTPError
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -147,6 +148,21 @@ class WorkflowTest(unittest.TestCase):
         result = generate_weekly_outputs(force=True)
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["follow_count"], 5)
+
+    def test_weekly_outputs_do_not_fail_when_x_read_access_is_paywalled(self) -> None:
+        with patch(
+            "social_agent.workflows.XClient.search_recent_posts",
+            side_effect=HTTPError(
+                url="https://api.twitter.com/2/tweets/search/recent",
+                code=402,
+                msg="Payment Required",
+                hdrs=None,
+                fp=None,
+            ),
+        ):
+            result = generate_weekly_outputs(force=True)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["engagement_count"], 0)
 
     def test_approved_reply_publishes_immediately(self) -> None:
         store = JsonStateStore(self.state_dir)
