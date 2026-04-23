@@ -140,9 +140,9 @@ class WorkflowTest(unittest.TestCase):
             process_telegram_updates()
         regenerated = store.get("drafts", batch["batch_id"])
         self.assertEqual(regenerated["regenerate_count"], 1)
-        with self.assertRaises(ValueError):
-            with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[regen_update]):
-                process_telegram_updates()
+        with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[regen_update]):
+            result = process_telegram_updates()
+        self.assertTrue(any("already regenerated once" in error for error in result["action_errors"]))
 
     def test_weekly_outputs_generate_follow_digest_with_five_items(self) -> None:
         result = generate_weekly_outputs(force=True)
@@ -224,6 +224,22 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(result["published"], 1)
         refreshed = store.get("publications", "queued_1")
         self.assertEqual(refreshed["status"], "published")
+
+    def test_unknown_batch_review_command_does_not_crash_processing(self) -> None:
+        approval_update = TelegramUpdate(
+            update_id=8,
+            message_id=18,
+            chat_id=12345,
+            text="/approve b9999 d1",
+            caption=None,
+            photo_file_id=None,
+            raw={},
+        )
+        with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[approval_update]):
+            result = process_telegram_updates()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["action_count"], 0)
+        self.assertTrue(any("Unknown batch_id" in error for error in result["action_errors"]))
 
 
 if __name__ == "__main__":

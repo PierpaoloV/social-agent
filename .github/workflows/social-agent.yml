@@ -75,6 +75,7 @@ jobs:
           fi
 
       - name: Commit private companion state changes
+        if: always()
         env:
           STATE_REPO_REF: ${{ secrets.STATE_REPO_REF }}
         run: |

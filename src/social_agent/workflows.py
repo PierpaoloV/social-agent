@@ -68,13 +68,18 @@ def process_telegram_updates() -> dict[str, Any]:
     updates = telegram.get_updates(offset=state["last_update_id"] + 1)
     inbox_count = 0
     action_count = 0
+    action_errors: list[str] = []
     for update in updates:
         state["last_update_id"] = max(state["last_update_id"], update.update_id)
         message_text = update.text or update.caption or ""
         command = parse_review_command(message_text) if message_text else None
         if command:
-            _apply_review_command(command, profile, runtime, store)
-            action_count += 1
+            try:
+                _apply_review_command(command, profile, runtime, store)
+                action_count += 1
+            except ValueError as exc:
+                action_errors.append(str(exc))
+                _notify(runtime, f"Review command skipped: {exc}")
             continue
         if not message_text and not update.photo_file_id:
             continue
@@ -89,7 +94,7 @@ def process_telegram_updates() -> dict[str, Any]:
         store.put("inbox", item.item_id, item.to_dict())
         inbox_count += 1
     store.write_runtime("telegram_updates", state)
-    return {"status": "ok", "inbox_count": inbox_count, "action_count": action_count}
+    return {"status": "ok", "inbox_count": inbox_count, "action_count": action_count, "action_errors": action_errors}
 
 
 def run_draft_cycle(force: bool = False) -> dict[str, Any]:
