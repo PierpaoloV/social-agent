@@ -49,15 +49,30 @@ jobs:
 
       - name: Run draft cycle
         if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 6 * * *'
-        run: social-agent run-drafts
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            social-agent run-drafts --force
+          else
+            social-agent run-drafts
+          fi
 
       - name: Publish queued posts
         if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 10 * * *'
-        run: social-agent publish-queued
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            social-agent publish-queued --force
+          else
+            social-agent publish-queued
+          fi
 
       - name: Generate weekly digests
         if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 7 * * 1'
-        run: social-agent weekly-digests
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            social-agent weekly-digests --force
+          else
+            social-agent weekly-digests
+          fi
 
       - name: Commit private companion state changes
         env:
