@@ -1,0 +1,68 @@
+persona:
+  account_identity: "Personal AI-assisted X account"
+  voice:
+    default_language: "en"
+    allowed_post_languages:
+      - "en"
+      - "it"
+    allowed_reply_languages:
+      - "en"
+      - "it"
+      - "es"
+    tone_rules:
+      - "sharp when useful"
+      - "technical and thoughtful"
+      - "no hype"
+      - "no fake certainty"
+  forbidden_topics:
+    - "politics"
+    - "flame wars"
+    - "unsupported claims"
+cadence:
+  timezone: "Europe/Amsterdam"
+  draft_every_days: 2
+  include_weekends: true
+  draft_delivery_window: "08:30"
+  publish_window: "11:00"
+  weekly_digest_day: "MON"
+thread_policy:
+  default_mode: "single_post"
+  max_thread_posts: 3
+  allowed_topic_classes:
+    - "technical_breakdown"
+    - "project_milestone"
+    - "research_reflection"
+source_policy:
+  strict_read_budget: true
+  source_weights:
+    telegram_inbox: 1.0
+    github_milestones: 0.9
+    backlog: 0.6
+    external_scan: 0.4
+  repo_allowlist:
+    - "PierpaoloV/weekly_ai_paper"
+    - "PierpaoloV/job-agent"
+feedback:
+  fixed_tags:
+    - "too generic"
+    - "not me"
+    - "too bold"
+    - "weak hook"
+    - "low value"
+    - "bad topic"
+    - "fact risk"
+    - "bad timing"
+publishing:
+  immediate_types:
+    - "reply"
+  queued_types:
+    - "original"
+    - "quote_post"
+models:
+  cheap_default:
+    provider: "openai"
+    model: "gpt-5.4-mini"
+  selective_upgrade:
+    provider: "openai"
+    model: "gpt-5.4"
+

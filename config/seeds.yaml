@@ -1,0 +1,43 @@
+seed_accounts:
+  must_follow:
+    - handle: "OpenAI"
+      category: "builder"
+      reason: "Foundational AI platform and ecosystem updates."
+    - handle: "AnthropicAI"
+      category: "builder"
+      reason: "Useful for agent workflows, evaluations, and model operations."
+    - handle: "huggingface"
+      category: "builder"
+      reason: "Strong signal for tooling, open models, and applied ML."
+    - handle: "stanfordmlgroup"
+      category: "research"
+      reason: "Research signal and strong technical context."
+  starter_candidates:
+    - handle: "karpathy"
+      category: "builder"
+      reason: "High-signal engineering and AI education."
+    - handle: "ylecun"
+      category: "research"
+      reason: "Broad research perspective and discussion."
+    - handle: "goodfellow_ian"
+      category: "research"
+      reason: "Strong technical and historical AI context."
+    - handle: "radboudumc"
+      category: "research"
+      reason: "Relevant institutional context."
+    - handle: "prinsesmaximac"
+      category: "research"
+      reason: "Relevant institutional context."
+discovery:
+  keywords:
+    - "agent engineering"
+    - "medical ai"
+    - "digital pathology"
+    - "multimodal ai"
+    - "ai research"
+  follow_scoring:
+    relevance_weight: 0.45
+    signal_weight: 0.35
+    style_fit_weight: 0.15
+    redundancy_penalty: 0.05
+  weekly_limit: 5

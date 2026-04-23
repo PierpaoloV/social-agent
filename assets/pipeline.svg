@@ -1,0 +1,108 @@
+<svg width="1200" height="760" viewBox="0 0 1200 760" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7F1E8"/>
+      <stop offset="1" stop-color="#E9F1F8"/>
+    </linearGradient>
+    <linearGradient id="private" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#1E3A5F"/>
+      <stop offset="1" stop-color="#2A6F97"/>
+    </linearGradient>
+    <linearGradient id="public" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#F28F3B"/>
+      <stop offset="1" stop-color="#D95D39"/>
+    </linearGradient>
+    <linearGradient id="agent" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#1F7A8C"/>
+      <stop offset="1" stop-color="#3BA99C"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#16324F" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="760" rx="32" fill="url(#bg)"/>
+  <rect x="52" y="52" width="500" height="656" rx="28" fill="#FFFFFF" fill-opacity="0.55" stroke="#1E3A5F" stroke-opacity="0.15" stroke-width="2" stroke-dasharray="10 10"/>
+  <text x="82" y="96" fill="#16324F" font-family="Arial, sans-serif" font-size="28" font-weight="700">Private Inputs and State</text>
+  <rect x="648" y="52" width="500" height="656" rx="28" fill="#FFFFFF" fill-opacity="0.55" stroke="#D95D39" stroke-opacity="0.15" stroke-width="2" stroke-dasharray="10 10"/>
+  <text x="678" y="96" fill="#7A2E1B" font-family="Arial, sans-serif" font-size="28" font-weight="700">Public Code and Publishing</text>
+
+  <g filter="url(#shadow)">
+    <rect x="88" y="132" width="192" height="118" rx="24" fill="url(#private)"/>
+    <text x="112" y="178" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="700">Telegram Inbox</text>
+    <text x="112" y="212" fill="#E6F6FF" font-family="Arial, sans-serif" font-size="18">Notes, images,</text>
+    <text x="112" y="236" fill="#E6F6FF" font-family="Arial, sans-serif" font-size="18">review commands</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="88" y="292" width="192" height="118" rx="24" fill="url(#private)"/>
+    <text x="112" y="338" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="700">Private State Repo</text>
+    <text x="112" y="372" fill="#E6F6FF" font-family="Arial, sans-serif" font-size="18">Inbox, drafts,</text>
+    <text x="112" y="396" fill="#E6F6FF" font-family="Arial, sans-serif" font-size="18">preferences, summaries</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="88" y="452" width="192" height="118" rx="24" fill="url(#private)"/>
+    <text x="112" y="498" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="700">GitHub Sources</text>
+    <text x="112" y="532" fill="#E6F6FF" font-family="Arial, sans-serif" font-size="18">Approved repos and</text>
+    <text x="112" y="556" fill="#E6F6FF" font-family="Arial, sans-serif" font-size="18">milestone signals</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="350" y="172" width="232" height="358" rx="30" fill="url(#agent)"/>
+    <text x="386" y="222" fill="white" font-family="Arial, sans-serif" font-size="28" font-weight="700">Agent Pipeline</text>
+    <text x="386" y="270" fill="#E7FFFD" font-family="Arial, sans-serif" font-size="20">1. collect ideas</text>
+    <text x="386" y="304" fill="#E7FFFD" font-family="Arial, sans-serif" font-size="20">2. rank by fit and novelty</text>
+    <text x="386" y="338" fill="#E7FFFD" font-family="Arial, sans-serif" font-size="20">3. draft 3 options</text>
+    <text x="386" y="372" fill="#E7FFFD" font-family="Arial, sans-serif" font-size="20">4. suggest replies / follows</text>
+    <text x="386" y="406" fill="#E7FFFD" font-family="Arial, sans-serif" font-size="20">5. update preferences</text>
+    <text x="386" y="464" fill="#C9FFF7" font-family="Arial, sans-serif" font-size="18">Cheap default model,</text>
+    <text x="386" y="488" fill="#C9FFF7" font-family="Arial, sans-serif" font-size="18">selective upgrade later</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="688" y="132" width="196" height="118" rx="24" fill="url(#public)"/>
+    <text x="716" y="176" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="700">Public Repo</text>
+    <text x="716" y="210" fill="#FFF1E5" font-family="Arial, sans-serif" font-size="18">Code, docs, config,</text>
+    <text x="716" y="234" fill="#FFF1E5" font-family="Arial, sans-serif" font-size="18">actions, README</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="688" y="292" width="196" height="150" rx="24" fill="url(#public)"/>
+    <text x="716" y="336" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="700">Human Control</text>
+    <text x="716" y="370" fill="#FFF1E5" font-family="Arial, sans-serif" font-size="18">Approve</text>
+    <text x="716" y="396" fill="#FFF1E5" font-family="Arial, sans-serif" font-size="18">Reject + tags</text>
+    <text x="716" y="422" fill="#FFF1E5" font-family="Arial, sans-serif" font-size="18">Edit</text>
+    <text x="716" y="448" fill="#FFF1E5" font-family="Arial, sans-serif" font-size="18">Regenerate once / Skip</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="918" y="292" width="194" height="118" rx="24" fill="url(#public)"/>
+    <text x="948" y="336" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="700">X Publishing</text>
+    <text x="948" y="370" fill="#FFF1E5" font-family="Arial, sans-serif" font-size="18">Replies: immediate</text>
+    <text x="948" y="396" fill="#FFF1E5" font-family="Arial, sans-serif" font-size="18">Posts: queued at 11:00</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="688" y="488" width="424" height="116" rx="24" fill="#FFFDF8"/>
+    <text x="718" y="530" fill="#7A2E1B" font-family="Arial, sans-serif" font-size="24" font-weight="700">Learning Loop</text>
+    <text x="718" y="562" fill="#6C4D3B" font-family="Arial, sans-serif" font-size="18">Feedback tags, before/after edits, publish outcomes, weekly preference summary</text>
+  </g>
+
+  <path d="M280 191H350" stroke="#1E3A5F" stroke-width="4" stroke-linecap="round"/>
+  <path d="M280 351H350" stroke="#1E3A5F" stroke-width="4" stroke-linecap="round"/>
+  <path d="M280 511H350" stroke="#1E3A5F" stroke-width="4" stroke-linecap="round"/>
+  <path d="M582 350H688" stroke="#1F7A8C" stroke-width="4" stroke-linecap="round"/>
+  <path d="M884 368H918" stroke="#D95D39" stroke-width="4" stroke-linecap="round"/>
+  <path d="M1015 410V488" stroke="#D95D39" stroke-width="4" stroke-linecap="round"/>
+  <path d="M688 546H582V530" stroke="#3BA99C" stroke-width="4" stroke-linecap="round"/>
+
+  <circle cx="315" cy="191" r="7" fill="#1E3A5F"/>
+  <circle cx="315" cy="351" r="7" fill="#1E3A5F"/>
+  <circle cx="315" cy="511" r="7" fill="#1E3A5F"/>
+  <circle cx="635" cy="350" r="7" fill="#1F7A8C"/>
+  <circle cx="901" cy="368" r="7" fill="#D95D39"/>
+  <circle cx="1015" cy="450" r="7" fill="#D95D39"/>
+
+  <text x="80" y="678" fill="#16324F" font-family="Arial, sans-serif" font-size="18">Privacy boundary: raw notes, images, runtime state, and learning artifacts stay outside the public repository.</text>
+</svg>

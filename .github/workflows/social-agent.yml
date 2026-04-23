@@ -1,0 +1,75 @@
+name: social-agent
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
+    - cron: "0 10 * * *"
+    - cron: "0 7 * * 1"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      X_API_BEARER_TOKEN: ${{ secrets.X_API_BEARER_TOKEN }}
+      X_API_KEY: ${{ secrets.X_API_KEY }}
+      X_API_SECRET: ${{ secrets.X_API_SECRET }}
+      X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+      X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+      GITHUB_TOKEN: ${{ secrets.STATE_REPO_TOKEN }}
+      SOCIAL_AGENT_STATE_DIR: ${{ github.workspace }}/.state
+    steps:
+      - name: Checkout public repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install package
+        run: pip install -e .
+
+      - name: Clone private companion state repo
+        env:
+          STATE_REPO_TOKEN: ${{ secrets.STATE_REPO_TOKEN }}
+          STATE_REPO_REF: ${{ secrets.STATE_REPO_REF }}
+        run: |
+          if [ -n "$STATE_REPO_TOKEN" ] && [ -n "$STATE_REPO_REF" ]; then
+            git clone "https://x-access-token:${STATE_REPO_TOKEN}@github.com/${STATE_REPO_REF}.git" "$SOCIAL_AGENT_STATE_DIR"
+          else
+            mkdir -p "$SOCIAL_AGENT_STATE_DIR"
+          fi
+
+      - name: Process Telegram updates
+        run: social-agent process-telegram
+
+      - name: Run draft cycle
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 6 * * *'
+        run: social-agent run-drafts
+
+      - name: Publish queued posts
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 10 * * *'
+        run: social-agent publish-queued
+
+      - name: Generate weekly digests
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 7 * * 1'
+        run: social-agent weekly-digests
+
+      - name: Commit private companion state changes
+        env:
+          STATE_REPO_REF: ${{ secrets.STATE_REPO_REF }}
+        run: |
+          if [ -d "$SOCIAL_AGENT_STATE_DIR/.git" ]; then
+            cd "$SOCIAL_AGENT_STATE_DIR"
+            git config user.name "social-agent-bot"
+            git config user.email "social-agent-bot@users.noreply.github.com"
+            git add .
+            if ! git diff --cached --quiet; then
+              git commit -m "Update social-agent state"
+              git push origin HEAD
+            fi
+          fi

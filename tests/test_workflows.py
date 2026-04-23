@@ -1,0 +1,212 @@
+from __future__ import annotations
+
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from social_agent.models import DraftKind
+from social_agent.state_store import JsonStateStore
+from social_agent.telegram import TelegramUpdate
+from social_agent.workflows import generate_weekly_outputs, process_telegram_updates, publish_queued, run_draft_cycle
+
+
+class WorkflowTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.state_dir = Path(self.temp_dir.name) / "private_state"
+        self.env_patch = patch.dict(
+            os.environ,
+            {
+                "SOCIAL_AGENT_STATE_DIR": str(self.state_dir),
+                "SOCIAL_AGENT_DRY_RUN": "true",
+                "TELEGRAM_BOT_TOKEN": "test-token",
+                "TELEGRAM_CHAT_ID": "12345",
+            },
+            clear=False,
+        )
+        self.env_patch.start()
+
+    def tearDown(self) -> None:
+        self.env_patch.stop()
+        self.temp_dir.cleanup()
+
+    def test_process_telegram_captures_private_inbox_item(self) -> None:
+        update = TelegramUpdate(
+            update_id=1,
+            message_id=11,
+            chat_id=12345,
+            text="I defended my PhD",
+            caption=None,
+            photo_file_id="photo-file",
+            raw={},
+        )
+        with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[update]):
+            result = process_telegram_updates()
+        self.assertEqual(result["inbox_count"], 1)
+        store = JsonStateStore(self.state_dir)
+        inbox_items = store.list("inbox")
+        self.assertEqual(len(inbox_items), 1)
+        self.assertTrue(str(self.state_dir) in str((self.state_dir / "inbox")))
+
+    def test_run_draft_cycle_turns_phd_note_into_batch(self) -> None:
+        update = TelegramUpdate(
+            update_id=2,
+            message_id=12,
+            chat_id=12345,
+            text="I defended my PhD and I want to reflect on what it taught me about research and systems.",
+            caption=None,
+            photo_file_id="photo-file",
+            raw={},
+        )
+        with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[update]):
+            process_telegram_updates()
+        result = run_draft_cycle(force=True)
+        self.assertEqual(result["status"], "ok")
+        store = JsonStateStore(self.state_dir)
+        batches = store.list("drafts")
+        self.assertEqual(len(batches), 1)
+        self.assertEqual(len(batches[0]["options"]), 3)
+        texts = [option["text"] for option in batches[0]["options"]]
+        self.assertTrue(any("PhD" in text or "research" in text for text in texts))
+
+    def test_edit_before_approve_is_stored_for_learning(self) -> None:
+        update = TelegramUpdate(
+            update_id=3,
+            message_id=13,
+            chat_id=12345,
+            text="A useful lesson from building an agent pipeline",
+            caption=None,
+            photo_file_id=None,
+            raw={},
+        )
+        with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[update]):
+            process_telegram_updates()
+        run_draft_cycle(force=True)
+        store = JsonStateStore(self.state_dir)
+        batch = store.list("drafts")[0]
+        draft_id = batch["options"][0]["draft_id"]
+        edit_update = TelegramUpdate(
+            update_id=4,
+            message_id=14,
+            chat_id=12345,
+            text=f"/edit {batch['batch_id']} {draft_id} | rewritten by hand",
+            caption=None,
+            photo_file_id=None,
+            raw={},
+        )
+        with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[edit_update]):
+            process_telegram_updates()
+        actions = store.list("approvals")
+        edit_actions = [item for item in actions if item["action_type"] == "edit"]
+        self.assertEqual(len(edit_actions), 1)
+        self.assertEqual(edit_actions[0]["edited_text_after"], "rewritten by hand")
+
+    def test_regenerate_is_limited_to_one_time(self) -> None:
+        update = TelegramUpdate(
+            update_id=5,
+            message_id=15,
+            chat_id=12345,
+            text="An update about an agent workflow release",
+            caption=None,
+            photo_file_id=None,
+            raw={},
+        )
+        with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[update]):
+            process_telegram_updates()
+        run_draft_cycle(force=True)
+        store = JsonStateStore(self.state_dir)
+        batch = store.list("drafts")[0]
+        regen_update = TelegramUpdate(
+            update_id=6,
+            message_id=16,
+            chat_id=12345,
+            text=f"/regenerate {batch['batch_id']}",
+            caption=None,
+            photo_file_id=None,
+            raw={},
+        )
+        with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[regen_update]):
+            process_telegram_updates()
+        regenerated = store.get("drafts", batch["batch_id"])
+        self.assertEqual(regenerated["regenerate_count"], 1)
+        with self.assertRaises(ValueError):
+            with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[regen_update]):
+                process_telegram_updates()
+
+    def test_weekly_outputs_generate_follow_digest_with_five_items(self) -> None:
+        result = generate_weekly_outputs(force=True)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["follow_count"], 5)
+
+    def test_approved_reply_publishes_immediately(self) -> None:
+        store = JsonStateStore(self.state_dir)
+        batch = {
+            "batch_id": "batch_reply",
+            "created_at": "2026-04-23T00:00:00+00:00",
+            "scheduled_for": "2026-04-23T11:00",
+            "cycle_key": "2026-04-23",
+            "regenerate_count": 0,
+            "status": "drafted",
+            "idea_ids": [],
+            "options": [
+                {
+                    "draft_id": "draft_reply",
+                    "batch_id": "batch_reply",
+                    "kind": DraftKind.REPLY.value,
+                    "topic_class": "technical_breakdown",
+                    "language": "en",
+                    "text": "Timely reply",
+                    "source_provenance": ["test"],
+                    "created_at": "2026-04-23T00:00:00+00:00",
+                    "model_name": "test",
+                    "metadata": {"reply_to_id": "123"},
+                }
+            ],
+        }
+        store.put("drafts", "batch_reply", batch)
+        approval_update = TelegramUpdate(
+            update_id=7,
+            message_id=17,
+            chat_id=12345,
+            text="/approve batch_reply draft_reply",
+            caption=None,
+            photo_file_id=None,
+            raw={},
+        )
+        with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[approval_update]):
+            process_telegram_updates()
+        publications = store.list("publications")
+        self.assertEqual(publications[0]["status"], "published")
+
+    def test_publish_queued_promotes_original_post(self) -> None:
+        store = JsonStateStore(self.state_dir)
+        store.put(
+            "publications",
+            "queued_1",
+            {
+                "publication_id": "queued_1",
+                "draft_id": "draft_original",
+                "kind": DraftKind.ORIGINAL.value,
+                "text": "Queued post",
+                "published_at": "",
+                "external_post_id": None,
+                "status": "queued",
+                "metadata": {},
+            },
+        )
+        result = publish_queued()
+        self.assertEqual(result["published"], 1)
+        refreshed = store.get("publications", "queued_1")
+        self.assertEqual(refreshed["status"], "published")
+
+
+if __name__ == "__main__":
+    unittest.main()
