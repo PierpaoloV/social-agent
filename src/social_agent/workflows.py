@@ -390,7 +390,7 @@ def _build_engagement_digest(runtime: RuntimeSettings) -> list[EngagementSuggest
         try:
             payload = x_client.search_recent_posts(query, max_results=2)
         except HTTPError as exc:
-            if exc.code in {401, 402, 403, 429}:
+            if exc.code in {400, 401, 402, 403, 429}:
                 return []
             raise
         for tweet in payload.get("data", [])[:1]:

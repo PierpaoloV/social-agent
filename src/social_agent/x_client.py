@@ -70,6 +70,7 @@ class XClient:
             return {"data": []}
         if not self.bearer_token:
             raise ValueError("X bearer token is required for read endpoints")
+        max_results = min(100, max(10, max_results))
         params = urlencode({"query": query, "max_results": max_results, "tweet.fields": "author_id,created_at"})
         request = Request(
             f"https://api.twitter.com/2/tweets/search/recent?{params}",
@@ -78,4 +79,3 @@ class XClient:
         )
         with urlopen(request, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))
-

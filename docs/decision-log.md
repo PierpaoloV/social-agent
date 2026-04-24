@@ -159,3 +159,19 @@ The project is explicitly optimized for minimal cost, so prepaid credits, API sp
 - The initial `$25.00` X API credit load is recorded.
 - Future direct expenses should be appended to `docs/expense-log.md`.
 - The decision log remains focused on why the system changes.
+
+## 2026-04-24 (X search request hardening)
+
+### Decision
+Normalize X recent-search request sizes and treat `400 Bad Request` from the optional engagement scan as non-fatal.
+
+### Status
+Accepted
+
+### Rationale
+Manual workflow testing after adding X credits showed that drafting and publishing checks could succeed while the weekly digest failed on the optional X recent-search step with `HTTP 400: Bad Request`.
+
+### Impact
+- X recent-search requests now use a supported minimum `max_results` value.
+- Weekly digest generation returns empty engagement suggestions instead of failing the workflow when X rejects a read query.
+- Original drafting and publishing are no longer blocked by optional engagement discovery.

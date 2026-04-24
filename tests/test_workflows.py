@@ -197,6 +197,21 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["engagement_count"], 0)
 
+    def test_weekly_outputs_do_not_fail_when_x_search_request_is_rejected(self) -> None:
+        with patch(
+            "social_agent.workflows.XClient.search_recent_posts",
+            side_effect=HTTPError(
+                url="https://api.twitter.com/2/tweets/search/recent",
+                code=400,
+                msg="Bad Request",
+                hdrs=None,
+                fp=None,
+            ),
+        ):
+            result = generate_weekly_outputs(force=True)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["engagement_count"], 0)
+
     def test_approved_reply_publishes_immediately(self) -> None:
         store = JsonStateStore(self.state_dir)
         batch = {
