@@ -258,6 +258,39 @@ class WorkflowTest(unittest.TestCase):
         refreshed = store.get("publications", "queued_1")
         self.assertEqual(refreshed["status"], "published")
 
+    def test_publish_queued_records_x_payment_required_failure(self) -> None:
+        store = JsonStateStore(self.state_dir)
+        store.put(
+            "publications",
+            "queued_402",
+            {
+                "publication_id": "queued_402",
+                "draft_id": "draft_original",
+                "kind": DraftKind.ORIGINAL.value,
+                "text": "Queued post",
+                "published_at": "",
+                "external_post_id": None,
+                "status": "queued",
+                "metadata": {},
+            },
+        )
+        with patch(
+            "social_agent.workflows.XClient.create_post",
+            side_effect=HTTPError(
+                url="https://api.twitter.com/2/tweets",
+                code=402,
+                msg="Payment Required",
+                hdrs=None,
+                fp=None,
+            ),
+        ):
+            result = publish_queued()
+        self.assertEqual(result["published"], 0)
+        self.assertEqual(result["failed"], 1)
+        refreshed = store.get("publications", "queued_402")
+        self.assertEqual(refreshed["status"], "failed")
+        self.assertEqual(refreshed["metadata"]["publish_error"]["code"], 402)
+
     def test_unknown_batch_review_command_does_not_crash_processing(self) -> None:
         approval_update = TelegramUpdate(
             update_id=8,

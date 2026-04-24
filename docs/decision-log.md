@@ -127,3 +127,19 @@ Live testing with the correctly wired OpenAI key showed the model returning `sin
 - LLM outputs such as `single_post`, `post`, and `quote_tweet` are now mapped to supported internal kinds.
 - Unexpected kind labels now degrade safely to `original` rather than crashing the workflow.
 - The system is more resilient to harmless wording drift in model-generated JSON.
+
+## 2026-04-24 (X write access failure handling)
+
+### Decision
+Record X write failures as failed publication state and notify the operator instead of letting `publish-queued` crash the entire workflow.
+
+### Status
+Accepted
+
+### Rationale
+Live publishing returned `HTTP 402: Payment Required` from X when calling the create-post endpoint. The approval and queueing logic worked, but the workflow failed during the X write call and left the operator without a clear state-level explanation.
+
+### Impact
+- Queued publications that hit an X HTTP error are marked `failed` with the HTTP code, reason, and timestamp.
+- Telegram receives an operator alert explaining that the post was not published.
+- The workflow can complete and persist state even when X refuses a write request.

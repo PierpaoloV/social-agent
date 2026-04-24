@@ -140,14 +140,32 @@ def publish_queued() -> dict[str, Any]:
     )
     queued_records = [record for record in store.list("publications") if record.get("status") == "queued"]
     published = 0
+    failed = 0
     for record in queued_records:
-        response = x_client.create_post(record["text"], quote_post_id=record.get("metadata", {}).get("quote_post_id"))
+        try:
+            response = x_client.create_post(record["text"], quote_post_id=record.get("metadata", {}).get("quote_post_id"))
+        except HTTPError as exc:
+            metadata = record.setdefault("metadata", {})
+            metadata["publish_error"] = {
+                "code": exc.code,
+                "reason": exc.reason,
+                "failed_at": utc_now_iso(),
+            }
+            record["status"] = "failed"
+            store.put("publications", record["publication_id"], record)
+            failed += 1
+            _notify(
+                runtime,
+                f"Publishing `{record['publication_id']}` failed with X HTTP {exc.code}: {exc.reason}. "
+                "The post was not published and is marked failed in private state.",
+            )
+            continue
         record["status"] = "published"
         record["published_at"] = utc_now_iso()
         record["external_post_id"] = response.get("data", {}).get("id")
         store.put("publications", record["publication_id"], record)
         published += 1
-    return {"status": "ok", "published": published}
+    return {"status": "ok", "published": published, "failed": failed}
 
 
 def generate_weekly_outputs(force: bool = False) -> dict[str, Any]:
