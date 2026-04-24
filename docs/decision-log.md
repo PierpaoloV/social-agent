@@ -143,3 +143,19 @@ Live publishing returned `HTTP 402: Payment Required` from X when calling the cr
 - Queued publications that hit an X HTTP error are marked `failed` with the HTTP code, reason, and timestamp.
 - Telegram receives an operator alert explaining that the post was not published.
 - The workflow can complete and persist state even when X refuses a write request.
+
+## 2026-04-24 (expense tracking)
+
+### Decision
+Track direct project costs in `docs/expense-log.md` separately from product and architecture decisions.
+
+### Status
+Accepted
+
+### Rationale
+The project is explicitly optimized for minimal cost, so prepaid credits, API spend, and other recurring expenses should be visible without mixing them into the decision log.
+
+### Impact
+- The initial `$25.00` X API credit load is recorded.
+- Future direct expenses should be appended to `docs/expense-log.md`.
+- The decision log remains focused on why the system changes.
