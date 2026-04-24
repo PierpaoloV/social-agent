@@ -2,6 +2,17 @@ name: social-agent
 
 on:
   workflow_dispatch:
+    inputs:
+      task:
+        description: "Which job should this manual run perform?"
+        required: true
+        default: "process-and-publish"
+        type: choice
+        options:
+          - "process-and-publish"
+          - "drafts"
+          - "weekly"
+          - "all"
   schedule:
     - cron: "*/15 * * * *"
     - cron: "0 6 * * *"
@@ -49,7 +60,7 @@ jobs:
         run: social-agent process-telegram
 
       - name: Run draft cycle
-        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 6 * * *'
+        if: github.event.schedule == '0 6 * * *' || github.event.inputs.task == 'drafts' || github.event.inputs.task == 'all'
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             social-agent run-drafts --force
@@ -58,7 +69,7 @@ jobs:
           fi
 
       - name: Publish queued posts
-        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 10 * * *'
+        if: github.event.schedule == '0 10 * * *' || github.event.inputs.task == 'process-and-publish' || github.event.inputs.task == 'all'
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             social-agent publish-queued --force
@@ -67,7 +78,7 @@ jobs:
           fi
 
       - name: Generate weekly digests
-        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 7 * * 1'
+        if: github.event.schedule == '0 7 * * 1' || github.event.inputs.task == 'weekly' || github.event.inputs.task == 'all'
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             social-agent weekly-digests --force

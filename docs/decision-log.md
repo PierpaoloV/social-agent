@@ -175,3 +175,20 @@ Manual workflow testing after adding X credits showed that drafting and publishi
 - X recent-search requests now use a supported minimum `max_results` value.
 - Weekly digest generation returns empty engagement suggestions instead of failing the workflow when X rejects a read query.
 - Original drafting and publishing are no longer blocked by optional engagement discovery.
+
+## 2026-04-24 (manual workflow modes)
+
+### Decision
+Make manual GitHub Actions runs task-specific, with `process-and-publish` as the default manual task.
+
+### Status
+Accepted
+
+### Rationale
+Live testing showed that a manual run after approving a draft published the post successfully, but also forced a new draft batch and weekly digest. That made successful runs look noisy and confusing in Telegram.
+
+### Impact
+- Default manual runs now process Telegram commands and publish queued posts only.
+- Manual draft generation must be selected explicitly with the `drafts` task.
+- Manual weekly digest generation must be selected explicitly with the `weekly` task.
+- The `all` task remains available for full end-to-end smoke tests.
