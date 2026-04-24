@@ -268,7 +268,8 @@ class WorkflowTest(unittest.TestCase):
                 "metadata": {},
             },
         )
-        result = publish_queued()
+        with patch("social_agent.workflows.is_publish_window_open", return_value=True):
+            result = publish_queued()
         self.assertEqual(result["published"], 1)
         refreshed = store.get("publications", "queued_1")
         self.assertEqual(refreshed["status"], "published")
@@ -299,12 +300,76 @@ class WorkflowTest(unittest.TestCase):
                 fp=None,
             ),
         ):
-            result = publish_queued()
+            with patch("social_agent.workflows.is_publish_window_open", return_value=True):
+                result = publish_queued()
         self.assertEqual(result["published"], 0)
         self.assertEqual(result["failed"], 1)
         refreshed = store.get("publications", "queued_402")
         self.assertEqual(refreshed["status"], "failed")
         self.assertEqual(refreshed["metadata"]["publish_error"]["code"], 402)
+
+    def test_publish_queued_skips_outside_window(self) -> None:
+        store = JsonStateStore(self.state_dir)
+        store.put(
+            "publications",
+            "queued_late",
+            {
+                "publication_id": "queued_late",
+                "draft_id": "draft_original",
+                "kind": DraftKind.ORIGINAL.value,
+                "text": "Queued post",
+                "published_at": "",
+                "external_post_id": None,
+                "status": "queued",
+                "metadata": {},
+            },
+        )
+        with patch("social_agent.workflows.is_publish_window_open", return_value=False):
+            result = publish_queued()
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "outside publish window")
+        refreshed = store.get("publications", "queued_late")
+        self.assertEqual(refreshed["status"], "queued")
+
+    def test_publish_queued_force_bypasses_window(self) -> None:
+        store = JsonStateStore(self.state_dir)
+        store.put(
+            "publications",
+            "queued_force",
+            {
+                "publication_id": "queued_force",
+                "draft_id": "draft_original",
+                "kind": DraftKind.ORIGINAL.value,
+                "text": "Queued post",
+                "published_at": "",
+                "external_post_id": None,
+                "status": "queued",
+                "metadata": {},
+            },
+        )
+        with patch("social_agent.workflows.is_publish_window_open", return_value=False):
+            result = publish_queued(force=True)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["published"], 1)
+        refreshed = store.get("publications", "queued_force")
+        self.assertEqual(refreshed["status"], "published")
+
+    def test_weekly_digest_message_includes_actionable_engagement_context(self) -> None:
+        with patch(
+            "social_agent.workflows.XClient.search_recent_posts",
+            return_value={
+                "data": [{"id": "111", "author_id": "42"}],
+                "includes": {"users": [{"id": "42", "username": "agentsmith"}]},
+            },
+        ):
+            with patch("social_agent.workflows.TelegramClient.send_message") as send_message:
+                result = generate_weekly_outputs(force=True)
+        self.assertEqual(result["engagement_count"], 3)
+        digest_text = send_message.call_args.args[1]
+        self.assertIn("reply to @agentsmith", digest_text)
+        self.assertIn("Post: https://x.com/agentsmith/status/111", digest_text)
+        self.assertIn("Use as a reply:", digest_text)
+        self.assertIn("Use as a quote-post:", digest_text)
 
     def test_unknown_batch_review_command_does_not_crash_processing(self) -> None:
         approval_update = TelegramUpdate(

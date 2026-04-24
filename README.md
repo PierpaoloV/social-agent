@@ -64,8 +64,13 @@ python -m unittest discover -s tests
 ## Scheduled Jobs
 - `capture-inbox`: poll Telegram and store private inbox items.
 - `run-drafts`: every-two-days draft generation and Telegram delivery.
-- `publish-queued`: late-morning publishing for approved originals and quote-posts.
+- `publish-queued`: checked every 15 minutes, but only publishes queued originals and quote-posts during the configured local `publish_window`.
 - `weekly-digests`: engagement digest, follow digest, and weekly summary.
+
+## Publish Timing
+- The canonical publish time is `cadence.publish_window` in `config/profile.yaml`, interpreted in `cadence.timezone`.
+- The scheduler polls more frequently than the publish window so daylight-saving changes do not silently shift the local publish time.
+- Manual `publish-queued --force` runs bypass the time gate for operator testing and recovery.
 
 ## Operator Flow
 1. Send a note or photo to the Telegram bot.
@@ -74,3 +79,8 @@ python -m unittest discover -s tests
 4. Let the system queue or publish according to the content type.
 5. Review the weekly private markdown summary to see what the agent is learning.
 
+## Weekly Engagement Digest
+- `reply` suggestions are prompts for posts you may want to reply to manually on X.
+- `quote_post` suggestions are prompts for posts you may want to quote-post manually on X.
+- The Telegram digest now includes the target handle, direct X post link, and a ready-to-use draft line for each engagement suggestion.
+- Engagement suggestions are advisory only; they are not yet routed through the same `/approve` workflow as original draft batches.

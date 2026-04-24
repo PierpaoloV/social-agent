@@ -29,7 +29,7 @@ from .openai_client import OpenAIClient
 from .policies import external_query_budget
 from .ranking import rank_candidates
 from .runtime import RuntimeSettings, load_runtime_settings
-from .scheduling import current_cycle_key, iso_utc_now, now_in_timezone, should_run_every_n_days, week_key
+from .scheduling import current_cycle_key, is_publish_window_open, iso_utc_now, now_in_timezone, should_run_every_n_days, week_key
 from .state_store import JsonStateStore
 from .summary import build_weekly_summary
 from .telegram import TelegramClient, format_draft_batch_message, parse_review_command
@@ -128,8 +128,17 @@ def run_draft_cycle(force: bool = False) -> dict[str, Any]:
     return {"status": "ok", "batch_id": batch.batch_id, "option_count": len(batch.options)}
 
 
-def publish_queued() -> dict[str, Any]:
+def publish_queued(force: bool = False) -> dict[str, Any]:
     profile, _, runtime, store = build_context()
+    local_now = now_in_timezone(profile.timezone)
+    if not force and not is_publish_window_open(profile.timezone, profile.publish_window, reference_time=local_now):
+        return {
+            "status": "skipped",
+            "reason": "outside publish window",
+            "local_time": local_now.strftime("%H:%M"),
+            "publish_window": profile.publish_window,
+            "timezone": profile.timezone,
+        }
     x_client = XClient(
         api_key=runtime.x_api_key,
         api_secret=runtime.x_api_secret,
@@ -165,6 +174,8 @@ def publish_queued() -> dict[str, Any]:
         record["external_post_id"] = response.get("data", {}).get("id")
         store.put("publications", record["publication_id"], record)
         published += 1
+    if published:
+        _notify(runtime, f"Published {published} queued post(s) during the {profile.publish_window} {profile.timezone} window.")
     return {"status": "ok", "published": published, "failed": failed}
 
 
@@ -347,6 +358,7 @@ def _apply_review_command(command: dict[str, Any], profile: ProfileConfig, runti
 
 
 def _queue_or_publish(option: dict[str, Any], runtime: RuntimeSettings, store: JsonStateStore) -> str:
+    metadata = dict(option.get("metadata") or {})
     publication = PublishedPost(
         publication_id=make_id("pub"),
         draft_id=option["draft_id"],
@@ -355,7 +367,7 @@ def _queue_or_publish(option: dict[str, Any], runtime: RuntimeSettings, store: J
         published_at="",
         external_post_id=None,
         status="queued",
-        metadata={},
+        metadata={**metadata, "queued_at": utc_now_iso()},
     )
     if option["kind"] == DraftKind.REPLY.value:
         x_client = XClient(
@@ -393,17 +405,22 @@ def _build_engagement_digest(runtime: RuntimeSettings) -> list[EngagementSuggest
             if exc.code in {400, 401, 402, 403, 429}:
                 return []
             raise
+        user_lookup = {user.get("id"): user.get("username", user.get("id", "unknown")) for user in payload.get("includes", {}).get("users", [])}
         for tweet in payload.get("data", [])[:1]:
+            post_id = tweet.get("id")
+            target_handle = user_lookup.get(tweet.get("author_id"), tweet.get("author_id", "unknown"))
+            post_url = _build_x_post_url(target_handle, post_id)
             draft_text = f"Interesting angle on {query}. The part I care about most is whether this survives contact with real workflows."
             suggestions.append(
                 EngagementSuggestion(
                     suggestion_id=make_id("eng"),
                     suggestion_type="reply" if index < 2 else "quote_post",
-                    target_handle=tweet.get("author_id", "unknown"),
-                    context_summary=f"Recent post matched query '{query}'",
+                    target_handle=target_handle,
+                    context_summary=f"Recent post by @{target_handle} matched query '{query}'" if target_handle != "unknown" else f"Recent post matched query '{query}'",
                     draft_text=draft_text,
                     created_at=utc_now_iso(),
-                    source_post_id=tweet.get("id"),
+                    source_post_id=post_id,
+                    metadata={"post_url": post_url, "query": query},
                 )
             )
     return suggestions[:3]
@@ -511,7 +528,13 @@ def _format_weekly_digest_message(engagement: list[EngagementSuggestion], follow
     if engagement:
         lines.append("Engagement:")
         for item in engagement:
-            lines.append(f"- {item.suggestion_type}: {item.draft_text}")
+            action_hint = "Use as a reply:" if item.suggestion_type == DraftKind.REPLY.value else "Use as a quote-post:"
+            target = f"@{item.target_handle}" if item.target_handle and item.target_handle != "unknown" else "the linked post"
+            lines.append(f"- {item.suggestion_type} to {target}")
+            if item.source_post_id:
+                lines.append(f"  Post: {_build_x_post_url(item.target_handle, item.source_post_id)}")
+            lines.append(f"  Context: {item.context_summary}")
+            lines.append(f"  {action_hint} {item.draft_text}")
     if follows:
         lines.append("")
         lines.append("Follow suggestions:")
@@ -520,3 +543,11 @@ def _format_weekly_digest_message(engagement: list[EngagementSuggestion], follow
     lines.append("")
     lines.append(summary_markdown)
     return "\n".join(lines)
+
+
+def _build_x_post_url(target_handle: str | None, post_id: str | None) -> str:
+    if not post_id:
+        return ""
+    if target_handle and target_handle not in {"", "unknown"} and not target_handle.isdigit():
+        return f"https://x.com/{target_handle}/status/{post_id}"
+    return f"https://x.com/i/web/status/{post_id}"

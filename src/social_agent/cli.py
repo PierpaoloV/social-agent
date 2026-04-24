@@ -43,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(run_draft_cycle(force=args.force), indent=2, sort_keys=True))
         return 0
     if args.command == "publish-queued":
-        print(json.dumps(publish_queued(), indent=2, sort_keys=True))
+        print(json.dumps(publish_queued(force=args.force), indent=2, sort_keys=True))
         return 0
     if args.command == "weekly-digests":
         print(json.dumps(generate_weekly_outputs(force=args.force), indent=2, sort_keys=True))

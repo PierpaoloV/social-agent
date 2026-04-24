@@ -192,3 +192,20 @@ Live testing showed that a manual run after approving a draft published the post
 - Manual draft generation must be selected explicitly with the `drafts` task.
 - Manual weekly digest generation must be selected explicitly with the `weekly` task.
 - The `all` task remains available for full end-to-end smoke tests.
+
+## 2026-04-24 (publish window enforcement and actionable engagement digests)
+
+### Decision
+Enforce queued publishing against the configured local publish window in application code, and make weekly engagement digests actionable by including the target account and source post link.
+
+### Status
+Accepted
+
+### Rationale
+The repo configuration declared an `11:00` Amsterdam publish window, but the workflow was effectively governed by a fixed UTC cron, which drifted during daylight saving time. Separately, the weekly engagement digest surfaced generic copy without enough context to act on it, making the feature confusing in Telegram.
+
+### Impact
+- Queued publishing is now gated by `cadence.publish_window` and `cadence.timezone` instead of a fixed UTC assumption.
+- GitHub Actions now checks for queued publications on a short interval, while the app only publishes during the local-time window.
+- Successful queued publishing sends a Telegram confirmation instead of failing silently.
+- Weekly engagement suggestions now include the target handle, direct X post URL, and clearer reply versus quote-post wording.

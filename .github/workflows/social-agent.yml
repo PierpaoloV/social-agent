@@ -16,7 +16,6 @@ on:
   schedule:
     - cron: "*/15 * * * *"
     - cron: "0 6 * * *"
-    - cron: "0 10 * * *"
     - cron: "0 7 * * 1"
 
 jobs:
@@ -69,7 +68,7 @@ jobs:
           fi
 
       - name: Publish queued posts
-        if: github.event.schedule == '0 10 * * *' || github.event.inputs.task == 'process-and-publish' || github.event.inputs.task == 'all'
+        if: github.event.schedule == '*/15 * * * *' || github.event.inputs.task == 'process-and-publish' || github.event.inputs.task == 'all'
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             social-agent publish-queued --force
