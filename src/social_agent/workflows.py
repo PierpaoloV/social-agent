@@ -76,7 +76,12 @@ def process_telegram_updates() -> dict[str, Any]:
         state["last_update_id"] = max(state["last_update_id"], update.update_id)
         try:
             message_text = update.text or update.caption or ""
-            command = parse_review_command(message_text) if message_text else None
+            try:
+                command = parse_review_command(message_text) if message_text else None
+            except ValueError as exc:
+                action_errors.append(str(exc))
+                _notify(runtime, f"Review command skipped: {exc}")
+                continue
             if command:
                 try:
                     _apply_review_command(command, profile, runtime, store)

@@ -438,6 +438,22 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(result["action_count"], 0)
         self.assertTrue(any("Unknown batch_id" in error for error in result["action_errors"]))
 
+    def test_malformed_review_command_does_not_crash_processing(self) -> None:
+        malformed_update = TelegramUpdate(
+            update_id=9,
+            message_id=19,
+            chat_id=12345,
+            text="/approve",
+            caption=None,
+            photo_file_id=None,
+            raw={},
+        )
+        with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[malformed_update]):
+            result = process_telegram_updates()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["action_count"], 0)
+        self.assertTrue(any("approve command requires batch_id and draft_id" in error for error in result["action_errors"]))
+
 
 if __name__ == "__main__":
     unittest.main()
