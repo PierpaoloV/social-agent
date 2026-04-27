@@ -65,35 +65,43 @@ def process_telegram_updates() -> dict[str, Any]:
         return {"status": "skipped", "reason": "telegram not configured"}
     telegram = TelegramClient(runtime.telegram_bot_token, dry_run=runtime.dry_run)
     state = store.get("runtime", "telegram_updates") or {"last_update_id": 0}
-    updates = telegram.get_updates(offset=state["last_update_id"] + 1)
+    try:
+        updates = telegram.get_updates(offset=state["last_update_id"] + 1)
+    except Exception as exc:
+        return {"status": "error", "reason": "telegram getUpdates failed", "error": str(exc)}
     inbox_count = 0
     action_count = 0
     action_errors: list[str] = []
     for update in updates:
         state["last_update_id"] = max(state["last_update_id"], update.update_id)
-        message_text = update.text or update.caption or ""
-        command = parse_review_command(message_text) if message_text else None
-        if command:
-            try:
-                _apply_review_command(command, profile, runtime, store)
-                action_count += 1
-            except ValueError as exc:
-                action_errors.append(str(exc))
-                _notify(runtime, f"Review command skipped: {exc}")
-            continue
-        if not message_text and not update.photo_file_id:
-            continue
-        item = InboxItem(
-            item_id=make_id("inbox"),
-            source="telegram",
-            content_text=message_text,
-            created_at=utc_now_iso(),
-            media_paths=[update.photo_file_id] if update.photo_file_id else [],
-            metadata={"chat_id": update.chat_id, "message_id": update.message_id},
-        )
-        store.put("inbox", item.item_id, item.to_dict())
-        inbox_count += 1
-    store.write_runtime("telegram_updates", state)
+        try:
+            message_text = update.text or update.caption or ""
+            command = parse_review_command(message_text) if message_text else None
+            if command:
+                try:
+                    _apply_review_command(command, profile, runtime, store)
+                    action_count += 1
+                except ValueError as exc:
+                    action_errors.append(str(exc))
+                    _notify(runtime, f"Review command skipped: {exc}")
+                except Exception as exc:
+                    action_errors.append(f"Update {update.update_id} failed: {exc}")
+                    _notify(runtime, f"Review command failed for update {update.update_id}: {exc}")
+                continue
+            if not message_text and not update.photo_file_id:
+                continue
+            item = InboxItem(
+                item_id=make_id("inbox"),
+                source="telegram",
+                content_text=message_text,
+                created_at=utc_now_iso(),
+                media_paths=[update.photo_file_id] if update.photo_file_id else [],
+                metadata={"chat_id": update.chat_id, "message_id": update.message_id},
+            )
+            store.put("inbox", item.item_id, item.to_dict())
+            inbox_count += 1
+        finally:
+            store.write_runtime("telegram_updates", state)
     return {"status": "ok", "inbox_count": inbox_count, "action_count": action_count, "action_errors": action_errors}
 
 
@@ -515,7 +523,10 @@ def _recent_topics(store: JsonStateStore) -> list[str]:
 def _notify(runtime: RuntimeSettings, message: str) -> None:
     if runtime.telegram_bot_token and runtime.telegram_chat_id:
         telegram = TelegramClient(runtime.telegram_bot_token, dry_run=runtime.dry_run)
-        telegram.send_message(runtime.telegram_chat_id, message)
+        try:
+            telegram.send_message(runtime.telegram_chat_id, message)
+        except Exception:
+            return
 
 
 def send_alert(message: str) -> None:

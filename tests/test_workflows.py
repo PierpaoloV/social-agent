@@ -177,6 +177,57 @@ class WorkflowTest(unittest.TestCase):
             result = process_telegram_updates()
         self.assertTrue(any("already regenerated once" in error for error in result["action_errors"]))
 
+    def test_process_telegram_persists_offset_when_review_action_crashes(self) -> None:
+        store = JsonStateStore(self.state_dir)
+        batch = {
+            "batch_id": "batch_reply",
+            "created_at": "2026-04-23T00:00:00+00:00",
+            "scheduled_for": "2026-04-23T11:00",
+            "cycle_key": "2026-04-23",
+            "regenerate_count": 0,
+            "status": "drafted",
+            "idea_ids": [],
+            "options": [
+                {
+                    "draft_id": "draft_reply",
+                    "batch_id": "batch_reply",
+                    "kind": DraftKind.REPLY.value,
+                    "topic_class": "technical_breakdown",
+                    "language": "en",
+                    "text": "Timely reply",
+                    "source_provenance": ["test"],
+                    "created_at": "2026-04-23T00:00:00+00:00",
+                    "model_name": "test",
+                    "metadata": {"reply_to_id": "123"},
+                }
+            ],
+        }
+        store.put("drafts", "batch_reply", batch)
+        approval_update = TelegramUpdate(
+            update_id=99,
+            message_id=17,
+            chat_id=12345,
+            text="/approve batch_reply draft_reply",
+            caption=None,
+            photo_file_id=None,
+            raw={},
+        )
+        with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[approval_update]):
+            with patch("social_agent.workflows.XClient.create_post", side_effect=RuntimeError("x unavailable")):
+                result = process_telegram_updates()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["action_count"], 0)
+        self.assertTrue(any("Update 99 failed: x unavailable" in error for error in result["action_errors"]))
+        runtime_state = store.get("runtime", "telegram_updates")
+        self.assertEqual(runtime_state["last_update_id"], 99)
+
+    def test_process_telegram_handles_get_updates_failure(self) -> None:
+        with patch("social_agent.workflows.TelegramClient.get_updates", side_effect=RuntimeError("telegram unavailable")):
+            result = process_telegram_updates()
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["reason"], "telegram getUpdates failed")
+        self.assertEqual(result["error"], "telegram unavailable")
+
     def test_weekly_outputs_generate_follow_digest_with_five_items(self) -> None:
         result = generate_weekly_outputs(force=True)
         self.assertEqual(result["status"], "ok")

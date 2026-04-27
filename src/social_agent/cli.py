@@ -3,8 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import traceback
+from collections.abc import Callable
+from typing import Any
 
 from .workflows import doctor, generate_weekly_outputs, process_telegram_updates, publish_queued, run_draft_cycle, send_alert
+from .models import make_id, utc_now_iso
+from .runtime import load_runtime_settings
+from .state_store import JsonStateStore
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,28 +35,55 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _persist_command_error(command_name: str, exc: Exception) -> dict[str, Any]:
+    error_id = make_id("err")
+    payload: dict[str, Any] = {
+        "error_id": error_id,
+        "command": command_name,
+        "status": "error",
+        "created_at": utc_now_iso(),
+        "error_type": type(exc).__name__,
+        "message": str(exc),
+        "traceback": traceback.format_exc().splitlines(),
+    }
+    try:
+        runtime = load_runtime_settings()
+        store = JsonStateStore(runtime.state_dir)
+        store.put("errors", error_id, payload)
+        store.write_runtime("latest_command_error", payload)
+        payload["state_dir"] = str(runtime.state_dir)
+    except Exception as tracking_exc:
+        payload["tracking_error"] = f"{type(tracking_exc).__name__}: {tracking_exc}"
+    return payload
+
+
+def _run_command(command_name: str, handler: Callable[[], dict[str, Any] | None]) -> int:
+    try:
+        result = handler()
+    except Exception as exc:
+        print(json.dumps(_persist_command_error(command_name, exc), indent=2, sort_keys=True))
+        return 1
+    if result is not None:
+        print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.command == "doctor":
-        print(json.dumps(doctor(), indent=2, sort_keys=True))
-        return 0
+        return _run_command("doctor", doctor)
     if args.command == "process-telegram":
-        print(json.dumps(process_telegram_updates(), indent=2, sort_keys=True))
-        return 0
+        return _run_command("process-telegram", process_telegram_updates)
     if args.command == "run-drafts":
-        print(json.dumps(run_draft_cycle(force=args.force), indent=2, sort_keys=True))
-        return 0
+        return _run_command("run-drafts", lambda: run_draft_cycle(force=args.force))
     if args.command == "publish-queued":
-        print(json.dumps(publish_queued(force=args.force), indent=2, sort_keys=True))
-        return 0
+        return _run_command("publish-queued", lambda: publish_queued(force=args.force))
     if args.command == "weekly-digests":
-        print(json.dumps(generate_weekly_outputs(force=args.force), indent=2, sort_keys=True))
-        return 0
+        return _run_command("weekly-digests", lambda: generate_weekly_outputs(force=args.force))
     if args.command == "alert":
-        send_alert(args.message)
-        return 0
+        return _run_command("alert", lambda: (send_alert(args.message), None)[1])
     parser.print_help()
     return 1
 

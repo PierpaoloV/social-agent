@@ -33,6 +33,7 @@ state/
   ideas/
   drafts/
   approvals/
+  errors/
   publications/
   suggestions/
   summaries/
