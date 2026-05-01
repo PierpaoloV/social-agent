@@ -55,6 +55,22 @@ class InboxItem:
     status: str = "unprocessed"
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> InboxItem:
+        return cls(
+            item_id=str(payload["item_id"]),
+            source=str(payload["source"]),
+            content_text=str(payload.get("content_text", "")),
+            created_at=str(payload["created_at"]),
+            media_paths=[str(item) for item in payload.get("media_paths", [])],
+            media_keep=bool(payload.get("media_keep", False)),
+            status=str(payload.get("status", "unprocessed")),
+            metadata=dict(payload.get("metadata") or {}),
+        )
+
+    def mark_processed(self) -> None:
+        self.status = "processed"
+
     def validate(self) -> None:
         if not self.item_id:
             raise ValueError("InboxItem.item_id is required")
@@ -81,11 +97,26 @@ class IdeaCandidate:
     provenance: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def validate(self) -> None:
-        if not self.idea_id or not self.title:
-            raise ValueError("IdeaCandidate requires idea_id and title")
-        if self.source_type not in {item.value for item in SourceType}:
-            raise ValueError(f"Unsupported source type: {self.source_type}")
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> IdeaCandidate:
+        return cls(
+            idea_id=str(payload["idea_id"]),
+            title=str(payload["title"]),
+            summary=str(payload["summary"]),
+            source_type=str(payload["source_type"]),
+            source_ids=[str(item) for item in payload.get("source_ids", [])],
+            topic_class=str(payload["topic_class"]),
+            novelty_score=float(payload["novelty_score"]),
+            authenticity_score=float(payload["authenticity_score"]),
+            relevance_score=float(payload["relevance_score"]),
+            source_weight=float(payload["source_weight"]),
+            provenance=[str(item) for item in payload.get("provenance", [])],
+            metadata=dict(payload.get("metadata") or {}),
+        )
+
+    @property
+    def source_key(self) -> tuple[str, tuple[str, ...]]:
+        return self.source_type, tuple(sorted(str(source_id) for source_id in self.source_ids))
 
     @property
     def overall_score(self) -> float:
@@ -96,6 +127,17 @@ class IdeaCandidate:
             + (self.source_weight * 0.10),
             4,
         )
+
+    def mark_drafted(self) -> None:
+        self.metadata["last_drafted_at"] = utc_now_iso()
+        if self.source_type == SourceType.BACKLOG.value and not self.metadata.get("allow_reuse"):
+            self.metadata["consumed_at"] = utc_now_iso()
+
+    def validate(self) -> None:
+        if not self.idea_id or not self.title:
+            raise ValueError("IdeaCandidate requires idea_id and title")
+        if self.source_type not in {item.value for item in SourceType}:
+            raise ValueError(f"Unsupported source type: {self.source_type}")
 
     def to_dict(self) -> dict[str, Any]:
         self.validate()
@@ -118,6 +160,28 @@ class DraftOption:
     score: float = 0.0
     thread_posts: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> DraftOption:
+        return cls(
+            draft_id=str(payload["draft_id"]),
+            batch_id=str(payload["batch_id"]),
+            kind=str(payload["kind"]),
+            topic_class=str(payload["topic_class"]),
+            language=str(payload["language"]),
+            text=str(payload["text"]),
+            source_provenance=[str(item) for item in payload.get("source_provenance", [])],
+            created_at=str(payload["created_at"]),
+            model_name=str(payload["model_name"]),
+            score=float(payload.get("score", 0.0)),
+            thread_posts=[str(item) for item in payload.get("thread_posts", [])],
+            metadata=dict(payload.get("metadata") or {}),
+        )
+
+    def apply_edit(self, edited_text: str) -> str:
+        previous_text = self.text
+        self.text = edited_text
+        return previous_text
 
     def validate(self) -> None:
         if not self.draft_id or not self.batch_id:
@@ -147,6 +211,44 @@ class DraftBatch:
     status: str = "drafted"
     options: list[DraftOption] = field(default_factory=list)
     idea_ids: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> DraftBatch:
+        return cls(
+            batch_id=str(payload["batch_id"]),
+            created_at=str(payload["created_at"]),
+            scheduled_for=str(payload["scheduled_for"]),
+            cycle_key=str(payload["cycle_key"]),
+            regenerate_count=int(payload.get("regenerate_count", 0)),
+            delivered_message_id=payload.get("delivered_message_id"),
+            status=str(payload.get("status", "drafted")),
+            options=[DraftOption.from_dict(item) for item in payload.get("options", [])],
+            idea_ids=[str(item) for item in payload.get("idea_ids", [])],
+        )
+
+    def find_option(self, draft_id: str) -> DraftOption:
+        for option in self.options:
+            if option.draft_id == draft_id:
+                return option
+        raise ValueError(f"Unknown draft_id: {draft_id}")
+
+    def regenerate(self) -> None:
+        if self.regenerate_count >= 1:
+            raise ValueError("Batch already regenerated once")
+        self.regenerate_count += 1
+
+    def mark_skipped(self) -> None:
+        self.status = "skipped"
+
+    def mark_approved(self, draft_id: str) -> DraftOption:
+        option = self.find_option(draft_id)
+        self.status = "approved"
+        return option
+
+    def edit_option(self, draft_id: str, edited_text: str) -> tuple[DraftOption, str]:
+        option = self.find_option(draft_id)
+        previous_text = option.apply_edit(edited_text)
+        return option, previous_text
 
     def validate(self) -> None:
         if not self.batch_id or not self.cycle_key:
@@ -187,6 +289,22 @@ class ApprovalAction:
     publish_now: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> ApprovalAction:
+        return cls(
+            action_id=str(payload["action_id"]),
+            action_type=str(payload["action_type"]),
+            target_batch_id=str(payload["target_batch_id"]),
+            draft_id=payload.get("draft_id"),
+            created_at=str(payload["created_at"]),
+            feedback_tags=[str(item) for item in payload.get("feedback_tags", [])],
+            note=payload.get("note"),
+            edited_text_before=payload.get("edited_text_before"),
+            edited_text_after=payload.get("edited_text_after"),
+            publish_now=bool(payload.get("publish_now", False)),
+            metadata=dict(payload.get("metadata") or {}),
+        )
+
     def validate(self) -> None:
         if self.action_type not in {item.value for item in ActionType}:
             raise ValueError(f"Unsupported action type: {self.action_type}")
@@ -209,6 +327,19 @@ class EngagementSuggestion:
     source_post_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> EngagementSuggestion:
+        return cls(
+            suggestion_id=str(payload["suggestion_id"]),
+            suggestion_type=str(payload["suggestion_type"]),
+            target_handle=str(payload["target_handle"]),
+            context_summary=str(payload["context_summary"]),
+            draft_text=str(payload["draft_text"]),
+            created_at=str(payload["created_at"]),
+            source_post_id=payload.get("source_post_id"),
+            metadata=dict(payload.get("metadata") or {}),
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -226,6 +357,22 @@ class FollowSuggestion:
     redundancy_penalty: float
     created_at: str
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> FollowSuggestion:
+        return cls(
+            suggestion_id=str(payload["suggestion_id"]),
+            handle=str(payload["handle"]),
+            display_name=str(payload["display_name"]),
+            category=str(payload["category"]),
+            reason=str(payload["reason"]),
+            relevance_score=float(payload["relevance_score"]),
+            signal_score=float(payload["signal_score"]),
+            style_fit_score=float(payload["style_fit_score"]),
+            redundancy_penalty=float(payload["redundancy_penalty"]),
+            created_at=str(payload["created_at"]),
+            metadata=dict(payload.get("metadata") or {}),
+        )
 
     @property
     def total_score(self) -> float:
@@ -248,6 +395,47 @@ class PublishedPost:
     status: str
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> PublishedPost:
+        return cls(
+            publication_id=str(payload["publication_id"]),
+            draft_id=str(payload["draft_id"]),
+            kind=str(payload["kind"]),
+            text=str(payload["text"]),
+            published_at=str(payload.get("published_at", "")),
+            external_post_id=payload.get("external_post_id"),
+            status=str(payload["status"]),
+            metadata=dict(payload.get("metadata") or {}),
+        )
+
+    @classmethod
+    def queue_from_option(cls, option: DraftOption) -> PublishedPost:
+        metadata = dict(option.metadata or {})
+        metadata["queued_at"] = utc_now_iso()
+        return cls(
+            publication_id=make_id("pub"),
+            draft_id=option.draft_id,
+            kind=option.kind,
+            text=option.text,
+            published_at="",
+            external_post_id=None,
+            status="queued",
+            metadata=metadata,
+        )
+
+    def mark_published(self, external_post_id: str | None) -> None:
+        self.status = "published"
+        self.published_at = utc_now_iso()
+        self.external_post_id = external_post_id
+
+    def mark_failed(self, code: int, reason: str) -> None:
+        self.status = "failed"
+        self.metadata["publish_error"] = {
+            "code": code,
+            "reason": reason,
+            "failed_at": utc_now_iso(),
+        }
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -260,6 +448,17 @@ class OutboundMessage:
     text: str
     created_at: str
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> OutboundMessage:
+        return cls(
+            message_id=str(payload["message_id"]),
+            channel=str(payload["channel"]),
+            kind=str(payload["kind"]),
+            text=str(payload["text"]),
+            created_at=str(payload["created_at"]),
+            metadata=dict(payload.get("metadata") or {}),
+        )
 
     def validate(self) -> None:
         if not self.message_id or not self.channel or not self.kind:
@@ -282,6 +481,18 @@ class PreferenceSnapshot:
     hook_patterns: list[str]
     notes: list[str] = field(default_factory=list)
 
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> PreferenceSnapshot:
+        return cls(
+            snapshot_id=str(payload["snapshot_id"]),
+            created_at=str(payload["created_at"]),
+            approved_tones=[str(item) for item in payload.get("approved_tones", [])],
+            preferred_sources=[str(item) for item in payload.get("preferred_sources", [])],
+            rejection_patterns=[str(item) for item in payload.get("rejection_patterns", [])],
+            hook_patterns=[str(item) for item in payload.get("hook_patterns", [])],
+            notes=[str(item) for item in payload.get("notes", [])],
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -300,6 +511,23 @@ class WeeklySummary:
     common_feedback_tags: list[str]
     preference_snapshot_id: str | None
     markdown: str
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> WeeklySummary:
+        return cls(
+            summary_id=str(payload["summary_id"]),
+            week_key=str(payload["week_key"]),
+            created_at=str(payload["created_at"]),
+            drafted_batches=int(payload["drafted_batches"]),
+            approved_count=int(payload["approved_count"]),
+            rejected_count=int(payload["rejected_count"]),
+            edited_count=int(payload["edited_count"]),
+            published_count=int(payload["published_count"]),
+            top_sources=[str(item) for item in payload.get("top_sources", [])],
+            common_feedback_tags=[str(item) for item in payload.get("common_feedback_tags", [])],
+            preference_snapshot_id=payload.get("preference_snapshot_id"),
+            markdown=str(payload["markdown"]),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

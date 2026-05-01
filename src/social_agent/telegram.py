@@ -115,28 +115,7 @@ def _format_sources(provenance: list[str]) -> str:
 
 
 def parse_review_command(text: str) -> dict[str, Any] | None:
-    if not text or not text.startswith("/"):
-        return None
-    command, _, remainder = text.partition(" ")
-    command_name = command.lstrip("/").strip().lower()
-    if command_name not in {"approve", "reject", "edit", "regenerate", "skip"}:
-        return None
-    if command_name in {"regenerate", "skip"}:
-        return {"action": command_name, "batch_id": remainder.strip()}
-    if command_name == "approve":
-        parts = remainder.split()
-        if len(parts) < 2:
-            raise ValueError("approve command requires batch_id and draft_id")
-        return {"action": command_name, "batch_id": parts[0], "draft_id": parts[1]}
-    if command_name == "reject":
-        head, _, note = remainder.partition("|")
-        parts = head.strip().split(maxsplit=2)
-        if len(parts) < 3:
-            raise ValueError("reject command requires batch_id, draft_id, and tags")
-        tags = [tag.strip() for tag in parts[2].split(",") if tag.strip()]
-        return {"action": command_name, "batch_id": parts[0], "draft_id": parts[1], "tags": tags, "note": note.strip() or None}
-    head, _, edited_text = remainder.partition("|")
-    parts = head.strip().split()
-    if len(parts) < 2 or not edited_text.strip():
-        raise ValueError("edit command requires batch_id, draft_id, and edited text")
-    return {"action": command_name, "batch_id": parts[0], "draft_id": parts[1], "edited_text": edited_text.strip()}
+    from .reviews import parse_review_command as parse_command
+
+    command = parse_command(text)
+    return None if command is None else command.to_dict()
