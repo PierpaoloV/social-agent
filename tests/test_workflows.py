@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -80,6 +81,15 @@ class WorkflowTest(unittest.TestCase):
         texts = [option["text"] for option in batches[0]["options"]]
         self.assertTrue(any("PhD" in text or "research" in text for text in texts))
 
+    def test_run_draft_cycle_does_not_redraft_same_github_source_twice(self) -> None:
+        first = run_draft_cycle(force=True)
+        second = run_draft_cycle(force=True)
+        self.assertEqual(first["status"], "ok")
+        self.assertEqual(second["status"], "skipped")
+        self.assertEqual(second["reason"], "no fresh ideas")
+        store = JsonStateStore(self.state_dir)
+        self.assertEqual(len(store.list("drafts")), 1)
+
     def test_model_single_post_kind_is_normalized_to_original(self) -> None:
         update = TelegramUpdate(
             update_id=20,
@@ -112,6 +122,62 @@ class WorkflowTest(unittest.TestCase):
         store = JsonStateStore(self.state_dir)
         batch = store.list("drafts")[0]
         self.assertEqual(batch["options"][0]["kind"], DraftKind.ORIGINAL.value)
+
+    def test_run_draft_cycle_passes_recent_outbound_drafts_into_prompt(self) -> None:
+        prompt_payloads: list[dict[str, object]] = []
+
+        def fake_generate_json(model: str, instructions: str, prompt: str) -> dict[str, object]:
+            prompt_payloads.append(json.loads(prompt))
+            return {
+                "drafts": [
+                    {
+                        "kind": "original",
+                        "language": "en",
+                        "topic_class": "project_milestone",
+                        "text": f"Fresh framing #{len(prompt_payloads)}",
+                        "thread_posts": [],
+                    }
+                ]
+            }
+
+        first_update = TelegramUpdate(
+            update_id=30,
+            message_id=130,
+            chat_id=12345,
+            text="A note about shipping a practical AI workflow",
+            caption=None,
+            photo_file_id=None,
+            raw={},
+        )
+        second_update = TelegramUpdate(
+            update_id=31,
+            message_id=131,
+            chat_id=12345,
+            text="Another note about evaluating agent workflows in practice",
+            caption=None,
+            photo_file_id=None,
+            raw={},
+        )
+
+        with patch.dict(os.environ, {"SOCIAL_AGENT_DRY_RUN": "false", "OPENAI_API_KEY": "test-key"}, clear=False):
+            with patch("social_agent.workflows.GitHubMilestoneDetector.collect_candidates", return_value=[]):
+                with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[first_update]):
+                    process_telegram_updates()
+                with patch("social_agent.openai_client.OpenAIClient.generate_json", side_effect=fake_generate_json):
+                    with patch("social_agent.workflows.TelegramClient.send_markdown_message"):
+                        run_draft_cycle(force=True)
+                with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[second_update]):
+                    process_telegram_updates()
+                with patch("social_agent.openai_client.OpenAIClient.generate_json", side_effect=fake_generate_json):
+                    with patch("social_agent.workflows.TelegramClient.send_markdown_message"):
+                        run_draft_cycle(force=True)
+
+        self.assertEqual(len(prompt_payloads), 2)
+        self.assertEqual(prompt_payloads[0]["recent_drafts"], [])
+        self.assertIn("Fresh framing #1", prompt_payloads[1]["recent_drafts"])
+        store = JsonStateStore(self.state_dir)
+        draft_batch_messages = [item for item in store.list("outbox") if item["kind"] == "draft_batch"]
+        self.assertEqual(len(draft_batch_messages), 2)
 
     def test_edit_before_approve_is_stored_for_learning(self) -> None:
         update = TelegramUpdate(

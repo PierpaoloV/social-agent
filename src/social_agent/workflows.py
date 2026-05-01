@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import json
-from dataclasses import asdict
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
 
@@ -14,12 +11,12 @@ from .learning import build_preference_snapshot
 from .models import (
     ActionType,
     ApprovalAction,
-    DraftBatch,
     DraftKind,
     EngagementSuggestion,
     FollowSuggestion,
     IdeaCandidate,
     InboxItem,
+    OutboundMessage,
     PublishedPost,
     SourceType,
     make_id,
@@ -29,7 +26,7 @@ from .openai_client import OpenAIClient
 from .policies import external_query_budget
 from .ranking import rank_candidates
 from .runtime import RuntimeSettings, load_runtime_settings
-from .scheduling import current_cycle_key, is_publish_window_open, iso_utc_now, now_in_timezone, should_run_every_n_days, week_key
+from .scheduling import current_cycle_key, is_publish_window_open, now_in_timezone, should_run_every_n_days, week_key
 from .state_store import JsonStateStore
 from .summary import build_weekly_summary
 from .telegram import TelegramClient, format_draft_batch_message, parse_review_command
@@ -80,7 +77,7 @@ def process_telegram_updates() -> dict[str, Any]:
                 command = parse_review_command(message_text) if message_text else None
             except ValueError as exc:
                 action_errors.append(str(exc))
-                _notify(runtime, f"Review command skipped: {exc}")
+                _notify(runtime, store, f"Review command skipped: {exc}")
                 continue
             if command:
                 try:
@@ -88,10 +85,10 @@ def process_telegram_updates() -> dict[str, Any]:
                     action_count += 1
                 except ValueError as exc:
                     action_errors.append(str(exc))
-                    _notify(runtime, f"Review command skipped: {exc}")
+                    _notify(runtime, store, f"Review command skipped: {exc}")
                 except Exception as exc:
                     action_errors.append(f"Update {update.update_id} failed: {exc}")
-                    _notify(runtime, f"Review command failed for update {update.update_id}: {exc}")
+                    _notify(runtime, store, f"Review command failed for update {update.update_id}: {exc}")
                 continue
             if not message_text and not update.photo_file_id:
                 continue
@@ -115,9 +112,12 @@ def run_draft_cycle(force: bool = False) -> dict[str, Any]:
     if not force and not should_run_every_n_days(profile.timezone, profile.draft_every_days):
         return {"status": "skipped", "reason": "not scheduled day"}
     ideas = _collect_idea_candidates(profile, runtime, store)
+    if not ideas:
+        _notify(runtime, store, "No new source material surfaced this cycle, so I skipped drafting instead of recycling older prompts.")
+        return {"status": "skipped", "reason": "no fresh ideas"}
     ranked = rank_candidates(ideas, recent_topics=_recent_topics(store))
     if not ranked or ranked[0].overall_score < 0.62:
-        _notify(runtime, "No strong post idea surfaced this cycle. Skipping instead of forcing content.")
+        _notify(runtime, store, "No strong new post idea surfaced this cycle. Skipping instead of forcing content.")
         return {"status": "skipped", "reason": "no strong ideas"}
     openai_client = OpenAIClient(runtime.openai_api_key, dry_run=runtime.dry_run) if runtime.openai_api_key or runtime.dry_run else None
     draft_generator = DraftGenerator(profile=profile, openai_client=openai_client, dry_run=runtime.dry_run or not runtime.openai_api_key)
@@ -127,17 +127,30 @@ def run_draft_cycle(force: bool = False) -> dict[str, Any]:
         cycle_key=current_cycle_key(profile.timezone),
         scheduled_for=f"{current_cycle_key(profile.timezone)}T{profile.publish_window}",
         preference_snapshot=preference_snapshot,
+        recent_drafts=_recent_outbound_draft_texts(store),
     )
     if not runtime.openai_api_key and not runtime.dry_run:
-        _notify(runtime, "OpenAI key is missing in the workflow environment, so this batch used the heuristic fallback instead of gpt-5.4-mini.")
+        _notify(runtime, store, "OpenAI key is missing in the workflow environment, so this batch used the heuristic fallback instead of gpt-5.4-mini.")
     store.put("drafts", batch.batch_id, batch.to_dict())
-    _mark_used_inbox_items(batch.idea_ids, store)
+    _mark_used_ideas(batch.idea_ids, store)
     for option in batch.options:
         if option.metadata is None:
             option.metadata = {}
     if runtime.telegram_bot_token and runtime.telegram_chat_id:
         telegram = TelegramClient(runtime.telegram_bot_token, dry_run=runtime.dry_run)
-        telegram.send_markdown_message(runtime.telegram_chat_id, format_draft_batch_message(batch.to_dict()))
+        message_text = format_draft_batch_message(batch.to_dict())
+        telegram.send_markdown_message(runtime.telegram_chat_id, message_text)
+        _record_outbound_message(
+            store,
+            channel="telegram",
+            kind="draft_batch",
+            text=message_text,
+            metadata={
+                "batch_id": batch.batch_id,
+                "option_texts": [option.text for option in batch.options],
+                "idea_ids": batch.idea_ids,
+            },
+        )
     return {"status": "ok", "batch_id": batch.batch_id, "option_count": len(batch.options)}
 
 
@@ -178,6 +191,7 @@ def publish_queued(force: bool = False) -> dict[str, Any]:
             failed += 1
             _notify(
                 runtime,
+                store,
                 f"Publishing `{record['publication_id']}` failed with X HTTP {exc.code}: {exc.reason}. "
                 "The post was not published and is marked failed in private state.",
             )
@@ -188,7 +202,7 @@ def publish_queued(force: bool = False) -> dict[str, Any]:
         store.put("publications", record["publication_id"], record)
         published += 1
     if published:
-        _notify(runtime, f"Published {published} queued post(s) during the {profile.publish_window} {profile.timezone} window.")
+        _notify(runtime, store, f"Published {published} queued post(s) during the {profile.publish_window} {profile.timezone} window.")
     return {"status": "ok", "published": published, "failed": failed}
 
 
@@ -210,7 +224,15 @@ def generate_weekly_outputs(force: bool = False) -> dict[str, Any]:
 
     if runtime.telegram_bot_token and runtime.telegram_chat_id:
         telegram = TelegramClient(runtime.telegram_bot_token, dry_run=runtime.dry_run)
-        telegram.send_message(runtime.telegram_chat_id, _format_weekly_digest_message(engagement, follow_suggestions, summary.markdown))
+        digest_text = _format_weekly_digest_message(engagement, follow_suggestions, summary.markdown)
+        telegram.send_message(runtime.telegram_chat_id, digest_text)
+        _record_outbound_message(
+            store,
+            channel="telegram",
+            kind="weekly_digest",
+            text=digest_text,
+            metadata={"week_key": week},
+        )
 
     return {
         "status": "ok",
@@ -222,14 +244,21 @@ def generate_weekly_outputs(force: bool = False) -> dict[str, Any]:
 
 
 def _collect_idea_candidates(profile: ProfileConfig, runtime: RuntimeSettings, store: JsonStateStore) -> list[IdeaCandidate]:
+    archived_ideas = store.list("ideas")
+    archived_source_keys = {_source_key_from_payload(item) for item in archived_ideas}
     ideas: list[IdeaCandidate] = []
     inbox_items = [item for item in store.list("inbox") if item.get("status") == "unprocessed"]
     for item in inbox_items:
-        ideas.append(_idea_from_inbox_item(item, profile.source_weights.get(SourceType.TELEGRAM.value, 1.0)))
+        candidate = _idea_from_inbox_item(item, profile.source_weights.get(SourceType.TELEGRAM.value, 1.0))
+        if _source_key(candidate) not in archived_source_keys:
+            ideas.append(candidate)
     github_detector = GitHubMilestoneDetector(github_token=runtime.github_token, dry_run=runtime.dry_run or not runtime.github_token)
-    ideas.extend(github_detector.collect_candidates(profile.repo_allowlist, profile.source_weights.get(SourceType.GITHUB.value, 0.9)))
-    backlog = store.list("ideas")
-    for item in backlog:
+    for candidate in github_detector.collect_candidates(profile.repo_allowlist, profile.source_weights.get(SourceType.GITHUB.value, 0.9)):
+        if _source_key(candidate) not in archived_source_keys:
+            ideas.append(candidate)
+    for item in archived_ideas:
+        if not _is_reusable_backlog_idea(item):
+            continue
         ideas.append(
             IdeaCandidate(
                 idea_id=item["idea_id"],
@@ -247,7 +276,8 @@ def _collect_idea_candidates(profile: ProfileConfig, runtime: RuntimeSettings, s
             )
         )
     for idea in ideas:
-        store.put("ideas", idea.idea_id, idea.to_dict())
+        if idea.source_type != SourceType.BACKLOG.value:
+            store.put("ideas", idea.idea_id, idea.to_dict())
     return ideas
 
 
@@ -295,7 +325,7 @@ def _apply_review_command(command: dict[str, Any], profile: ProfileConfig, runti
             raise ValueError("Batch already regenerated once")
         batch["regenerate_count"] += 1
         store.put("drafts", batch["batch_id"], batch)
-        _notify(runtime, f"Regenerating `{batch['batch_id']}` now. A fresh batch will arrive in this chat.")
+        _notify(runtime, store, f"Regenerating `{batch['batch_id']}` now. A fresh batch will arrive in this chat.")
         run_draft_cycle(force=True)
         action = ApprovalAction(
             action_id=make_id("action"),
@@ -309,7 +339,7 @@ def _apply_review_command(command: dict[str, Any], profile: ProfileConfig, runti
     if action_name == ActionType.SKIP.value:
         batch["status"] = "skipped"
         store.put("drafts", batch["batch_id"], batch)
-        _notify(runtime, f"Skipped batch `{batch['batch_id']}`.")
+        _notify(runtime, store, f"Skipped batch `{batch['batch_id']}`.")
         action = ApprovalAction(
             action_id=make_id("action"),
             action_type=ActionType.SKIP.value,
@@ -327,9 +357,9 @@ def _apply_review_command(command: dict[str, Any], profile: ProfileConfig, runti
         batch["status"] = "approved"
         store.put("drafts", batch["batch_id"], batch)
         if publication_status == "published":
-            _notify(runtime, f"Approved `{option['draft_id']}` from `{batch['batch_id']}` and published it immediately.")
+            _notify(runtime, store, f"Approved `{option['draft_id']}` from `{batch['batch_id']}` and published it immediately.")
         else:
-            _notify(runtime, f"Approved `{option['draft_id']}` from `{batch['batch_id']}`. It is queued for the next publish window.")
+            _notify(runtime, store, f"Approved `{option['draft_id']}` from `{batch['batch_id']}`. It is queued for the next publish window.")
         action = ApprovalAction(
             action_id=make_id("action"),
             action_type=ActionType.APPROVE.value,
@@ -341,7 +371,7 @@ def _apply_review_command(command: dict[str, Any], profile: ProfileConfig, runti
         store.put("approvals", action.action_id, action.to_dict())
         return
     if action_name == ActionType.REJECT.value:
-        _notify(runtime, f"Logged rejection for `{option['draft_id']}` from `{batch['batch_id']}`.")
+        _notify(runtime, store, f"Logged rejection for `{option['draft_id']}` from `{batch['batch_id']}`.")
         action = ApprovalAction(
             action_id=make_id("action"),
             action_type=ActionType.REJECT.value,
@@ -357,7 +387,7 @@ def _apply_review_command(command: dict[str, Any], profile: ProfileConfig, runti
     before = option["text"]
     option["text"] = edited_text
     store.put("drafts", batch["batch_id"], batch)
-    _notify(runtime, f"Saved your edit for `{option['draft_id']}` in `{batch['batch_id']}`.")
+    _notify(runtime, store, f"Saved your edit for `{option['draft_id']}` in `{batch['batch_id']}`.")
     action = ApprovalAction(
         action_id=make_id("action"),
         action_type=ActionType.EDIT.value,
@@ -439,11 +469,19 @@ def _build_engagement_digest(runtime: RuntimeSettings) -> list[EngagementSuggest
     return suggestions[:3]
 
 
-def _mark_used_inbox_items(idea_ids: list[str], store: JsonStateStore) -> None:
+def _mark_used_ideas(idea_ids: list[str], store: JsonStateStore) -> None:
     relevant_source_ids: set[str] = set()
     for idea_id in idea_ids:
         idea = store.get("ideas", idea_id)
-        if idea and idea.get("source_type") == SourceType.TELEGRAM.value:
+        if not idea:
+            continue
+        metadata = dict(idea.get("metadata") or {})
+        metadata["last_drafted_at"] = utc_now_iso()
+        if idea.get("source_type") == SourceType.BACKLOG.value and not metadata.get("allow_reuse"):
+            metadata["consumed_at"] = utc_now_iso()
+        idea["metadata"] = metadata
+        store.put("ideas", idea_id, idea)
+        if idea.get("source_type") == SourceType.TELEGRAM.value:
             relevant_source_ids.update(idea.get("source_ids", []))
     for source_id in relevant_source_ids:
         inbox = store.get("inbox", source_id)
@@ -525,18 +563,67 @@ def _recent_topics(store: JsonStateStore) -> list[str]:
     return [topic for topic in topics if topic]
 
 
-def _notify(runtime: RuntimeSettings, message: str) -> None:
+def _recent_outbound_draft_texts(store: JsonStateStore, limit: int = 6) -> list[str]:
+    texts: list[str] = []
+    for item in reversed(store.list("outbox")):
+        if item.get("kind") != "draft_batch":
+            continue
+        metadata = item.get("metadata") or {}
+        option_texts = metadata.get("option_texts") or []
+        for text in option_texts:
+            if text:
+                texts.append(text)
+        if len(texts) >= limit:
+            return texts[:limit]
+    return texts[:limit]
+
+
+def _record_outbound_message(
+    store: JsonStateStore,
+    channel: str,
+    kind: str,
+    text: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    message = OutboundMessage(
+        message_id=make_id("out"),
+        channel=channel,
+        kind=kind,
+        text=text,
+        created_at=utc_now_iso(),
+        metadata=metadata or {},
+    )
+    store.put("outbox", message.message_id, message.to_dict())
+
+
+def _notify(runtime: RuntimeSettings, store: JsonStateStore, message: str) -> None:
     if runtime.telegram_bot_token and runtime.telegram_chat_id:
         telegram = TelegramClient(runtime.telegram_bot_token, dry_run=runtime.dry_run)
         try:
             telegram.send_message(runtime.telegram_chat_id, message)
+            _record_outbound_message(store, channel="telegram", kind="notification", text=message)
         except Exception:
             return
 
 
 def send_alert(message: str) -> None:
-    _, _, runtime, _ = build_context()
-    _notify(runtime, f"[alert] {message}")
+    _, _, runtime, store = build_context()
+    _notify(runtime, store, f"[alert] {message}")
+
+
+def _source_key(candidate: IdeaCandidate) -> tuple[str, tuple[str, ...]]:
+    return candidate.source_type, tuple(sorted(str(source_id) for source_id in candidate.source_ids))
+
+
+def _source_key_from_payload(payload: dict[str, Any]) -> tuple[str, tuple[str, ...]]:
+    return str(payload.get("source_type", "")), tuple(sorted(str(source_id) for source_id in payload.get("source_ids", [])))
+
+
+def _is_reusable_backlog_idea(payload: dict[str, Any]) -> bool:
+    if payload.get("source_type") != SourceType.BACKLOG.value:
+        return False
+    metadata = payload.get("metadata") or {}
+    return not metadata.get("consumed_at")
 
 
 def _format_weekly_digest_message(engagement: list[EngagementSuggestion], follows: list[FollowSuggestion], summary_markdown: str) -> str:

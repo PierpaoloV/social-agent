@@ -253,6 +253,26 @@ class PublishedPost:
 
 
 @dataclass(slots=True)
+class OutboundMessage:
+    message_id: str
+    channel: str
+    kind: str
+    text: str
+    created_at: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def validate(self) -> None:
+        if not self.message_id or not self.channel or not self.kind:
+            raise ValueError("OutboundMessage requires message_id, channel, and kind")
+        if not self.text:
+            raise ValueError("OutboundMessage.text is required")
+
+    def to_dict(self) -> dict[str, Any]:
+        self.validate()
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class PreferenceSnapshot:
     snapshot_id: str
     created_at: str

@@ -1,5 +1,18 @@
 # Decision Log
 
+## Logging Convention
+
+For every meaningful product, workflow, or implementation change, log these three things explicitly:
+
+### Problem
+What was going wrong, missing, or confusing in the current system.
+
+### Proposed Change
+What we intended to change before implementation.
+
+### Actual Solution
+What shipped in code, including any meaningful difference from the original proposal.
+
 ## 2026-04-23
 
 ### Decision
@@ -209,3 +222,38 @@ The repo configuration declared an `11:00` Amsterdam publish window, but the wor
 - GitHub Actions now checks for queued publications on a short interval, while the app only publishes during the local-time window.
 - Successful queued publishing sends a Telegram confirmation instead of failing silently.
 - Weekly engagement suggestions now include the target handle, direct X post URL, and clearer reply versus quote-post wording.
+
+## 2026-04-27 (known Telegram weekly-digest UX gap)
+
+### Decision
+Record a known operator UX problem: weekly digest suggestions appear close enough to draft-review actions in Telegram that it is easy to try `/reject` on them even though they are not part of the draft approval workflow.
+
+### Status
+Accepted
+
+### Rationale
+Live use showed that weekly engagement suggestions and follow suggestions can read like actionable review items in chat, but the only supported slash commands still target draft batches. This mismatch is easy to hit during normal operator use and can create avoidable confusion.
+
+### Impact
+- Weekly digest suggestions remain advisory-only for now.
+- Slash commands such as `/approve` and `/reject` should still be treated as draft-batch actions only.
+- A future UX pass should give weekly suggestions their own explicit commands or clearer copy so they are not mistaken for draft-review items.
+
+## 2026-05-01 (freshness and message-history handling)
+
+### Problem
+The bot could resend stale or low-variation content because it did not keep a durable record of outbound messages and it treated archived ideas as reusable input even when no genuinely new source material had arrived.
+
+### Proposed Change
+Make the communication layer freshness-aware by logging outbound messages, feeding recent sent copy back into drafting, and skipping draft generation when there is no new material instead of recycling old prompts.
+
+### Actual Solution
+Implemented an `outbox` state folder and an `OutboundMessage` model, recorded outbound Telegram draft batches and notifications, passed recent outbound draft text into the drafting prompt as anti-repetition context, and changed idea collection so archived Telegram and GitHub ideas are not automatically reused. The draft cycle now returns a skip when no fresh ideas are available and tests cover both non-reuse of old sources and inclusion of recent outbound text in prompt construction.
+
+### Status
+Accepted
+
+### Impact
+- The system now has durable memory of what it already sent to Telegram.
+- Drafting is less likely to repeat the same hook or framing across cycles.
+- No-input periods now produce an explicit skip instead of resurfacing old content as if it were new.

@@ -15,12 +15,20 @@ class DraftGenerator:
     openai_client: OpenAIClient | None = None
     dry_run: bool = False
 
-    def generate_batch(self, ideas: list[IdeaCandidate], cycle_key: str, scheduled_for: str, preference_snapshot: PreferenceSnapshot | None = None) -> DraftBatch:
+    def generate_batch(
+        self,
+        ideas: list[IdeaCandidate],
+        cycle_key: str,
+        scheduled_for: str,
+        preference_snapshot: PreferenceSnapshot | None = None,
+        recent_drafts: list[str] | None = None,
+    ) -> DraftBatch:
         batch_id = make_short_id("b")
         selected = self._pad_ideas(ideas[:3])
-        options = self._generate_with_model(batch_id, selected, preference_snapshot)
+        recent_drafts = recent_drafts or []
+        options = self._generate_with_model(batch_id, selected, preference_snapshot, recent_drafts)
         if not options:
-            options = self._generate_heuristic(batch_id, selected)
+            options = self._generate_heuristic(batch_id, selected, recent_drafts)
         options = self._pad_options(batch_id, selected, options)
         options = self._normalize_option_ids(batch_id, options)
         batch = DraftBatch(
@@ -88,18 +96,27 @@ class DraftGenerator:
             )
         return padded[:3]
 
-    def _generate_with_model(self, batch_id: str, ideas: list[IdeaCandidate], preference_snapshot: PreferenceSnapshot | None) -> list[DraftOption]:
+    def _generate_with_model(
+        self,
+        batch_id: str,
+        ideas: list[IdeaCandidate],
+        preference_snapshot: PreferenceSnapshot | None,
+        recent_drafts: list[str],
+    ) -> list[DraftOption]:
         if self.dry_run or not self.openai_client or not ideas:
             return []
         instructions = (
             "You write X posts for a personal AI engineer account. "
             "Be concise, technical, and grounded. Use English by default. "
             "Avoid politics, flame wars, hype, and unsupported claims. "
+            "Treat recent_drafts as already-sent copy and avoid reusing their hooks, structure, or angle. "
+            "If an idea overlaps with recent_drafts, find a materially different framing instead of paraphrasing. "
             "Return JSON with key 'drafts', each having language, text, topic_class, kind, thread_posts."
         )
         prompt = {
             "ideas": [idea.to_dict() for idea in ideas],
             "preferences": preference_snapshot.to_dict() if preference_snapshot else None,
+            "recent_drafts": recent_drafts[:6],
             "thread_policy": self.profile.thread_policy,
             "allowed_post_languages": self.profile.allowed_post_languages,
         }
@@ -148,14 +165,28 @@ class DraftGenerator:
             return DraftKind.ORIGINAL.value
         return normalized
 
-    def _generate_heuristic(self, batch_id: str, ideas: list[IdeaCandidate]) -> list[DraftOption]:
+    def _generate_heuristic(self, batch_id: str, ideas: list[IdeaCandidate], recent_drafts: list[str]) -> list[DraftOption]:
         options: list[DraftOption] = []
-        for idea in ideas:
-            tone_prefix = {
-                "project_milestone": "Small milestone, but an important one:",
-                "technical_breakdown": "One practical thing I keep noticing:",
-                "research_reflection": "A research lesson I keep coming back to:",
-            }.get(idea.topic_class, "A useful thing I learned recently:")
+        recent_text = " ".join(recent_drafts).lower()
+        fallback_prefixes = {
+            "project_milestone": [
+                "Small milestone, but an important one:",
+                "A build detail that mattered more than expected:",
+            ],
+            "technical_breakdown": [
+                "One practical thing I keep noticing:",
+                "A technical pattern that keeps paying off:",
+            ],
+            "research_reflection": [
+                "A research lesson I keep coming back to:",
+                "One thing research keeps teaching me:",
+            ],
+        }
+        for index, idea in enumerate(ideas):
+            prefix_options = fallback_prefixes.get(idea.topic_class, ["A useful thing I learned recently:"])
+            tone_prefix = prefix_options[0]
+            if tone_prefix.lower() in recent_text and len(prefix_options) > 1:
+                tone_prefix = prefix_options[min(index, len(prefix_options) - 1)]
             text = f"{tone_prefix} {idea.summary}\n\nWhat I care about most here is the bridge between research clarity and practical AI systems."
             thread_posts: list[str] = []
             options.append(

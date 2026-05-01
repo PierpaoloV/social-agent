@@ -17,6 +17,7 @@ class JsonStateStore:
             "drafts",
             "approvals",
             "errors",
+            "outbox",
             "publications",
             "suggestions",
             "summaries",
