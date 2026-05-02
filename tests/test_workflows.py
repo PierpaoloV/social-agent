@@ -212,6 +212,10 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("public-safe technical lesson", instructions_payloads[0])
         self.assertIn("tone_rules", prompt_payloads[0])
         self.assertIn("forbidden_topics", prompt_payloads[0])
+        self.assertIn("editorial_context", prompt_payloads[0])
+        editorial_context = prompt_payloads[0]["editorial_context"]
+        self.assertIn("agent_engineering", [pillar["id"] for pillar in editorial_context["content_pillars"]])
+        self.assertIn("pattern", [archetype["id"] for archetype in editorial_context["post_archetypes"]])
         store = JsonStateStore(self.state_dir)
         draft_batch_messages = [item for item in store.list("outbox") if item["kind"] == "draft_batch"]
         self.assertEqual(len(draft_batch_messages), 2)

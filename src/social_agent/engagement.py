@@ -42,9 +42,8 @@ class XEngagementDiscovery:
 
 
 def build_follow_suggestions(seeds: SeedsConfig) -> list[FollowSuggestion]:
-    candidates = list(seeds.must_follow) + list(seeds.starter_candidates)
     suggestions: list[FollowSuggestion] = []
-    for item in candidates[: seeds.weekly_limit]:
+    for item in list(seeds.must_follow)[: seeds.weekly_limit]:
         scoring = seeds.follow_scoring
         suggestions.append(
             FollowSuggestion(

@@ -50,15 +50,17 @@ class OpenAIDraftModel:
         instructions = (
             f"You write X posts for this account identity: {profile.account_identity}. "
             "Turn source material into three distinct draft options that sound like a specific, careful builder thinking in public. "
+            "Use the editorial context to select a content pillar and post archetype for each draft before writing. "
             "Use concrete observations, tradeoffs, and lessons from the provided ideas; do not invent events, metrics, affiliations, employers, names, locations, medical details, or private life facts. "
             "If a source contains private or identifying detail, abstract it into a public-safe technical lesson. "
             "Avoid engagement bait, threadboi cadence, vague inspiration, fake certainty, dunking, politics, flame wars, and unsupported claims. "
             "Keep drafts concise enough for X, with a strong first sentence and no hashtags unless the source explicitly warrants one. "
             "Treat recent_drafts as already-sent copy and avoid reusing their hooks, structure, claims, or angle. "
             "If an idea overlaps with recent_drafts, choose a materially different framing instead of paraphrasing. "
-            "Return only JSON with key 'drafts'. Each draft must include language, text, topic_class, kind, and thread_posts."
+            "Return only JSON with key 'drafts'. Each draft must include language, text, topic_class, kind, thread_posts, content_pillar, and post_archetype."
         )
         prompt = {
+            "editorial_context": profile.editorial_context,
             "ideas": [idea.to_dict() for idea in ideas],
             "preferences": preference_snapshot.to_dict() if preference_snapshot else None,
             "recent_drafts": recent_drafts[:6],
@@ -79,6 +81,14 @@ class OpenAIDraftModel:
                 language = "en"
             if not is_thread_allowed(profile, topic_class, thread_posts):
                 thread_posts = []
+            metadata = dict(ideas[0].metadata if ideas else {})
+            metadata.update(
+                {
+                    key: str(draft.get(key)).strip()
+                    for key in ("content_pillar", "post_archetype")
+                    if draft.get(key)
+                }
+            )
             proposals.append(
                 DraftProposal(
                     kind=kind,
@@ -89,7 +99,7 @@ class OpenAIDraftModel:
                     model_name=profile.model_name,
                     score=0.75,
                     source_provenance=list(ideas[0].provenance if ideas else []),
-                    metadata=dict(ideas[0].metadata if ideas else {}),
+                    metadata=metadata,
                 )
             )
         return proposals

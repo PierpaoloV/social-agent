@@ -101,12 +101,14 @@ class WebContentScout:
     def _search_for_candidates(self, query: str) -> dict[str, Any]:
         instructions = (
             "Find public, source-grounded material that could become thoughtful X posts for an AI builder account. "
+            "Use the editorial context to choose material that fits the account's point of view and content pillars. "
             "Prefer concrete technical lessons, research/tooling updates, evaluations, and workflow design tradeoffs. "
             "Avoid hype, politics, drama, personal facts, medical advice, and unsupported claims. "
-            "Return only JSON with key 'candidates'. Each candidate must include title, summary, topic_class, source_references, source_summary, and public_safety_note."
+            "Return only JSON with key 'candidates'. Each candidate must include title, summary, topic_class, content_pillar, source_references, source_summary, and public_safety_note."
         )
         prompt = {
             "query": query,
+            "editorial_context": self.policy.profile.editorial_context,
             "max_candidates": self.policy.profile.web_scout.max_candidates,
             "max_sources_per_candidate": self.policy.profile.web_scout.max_sources_per_query,
             "allowed_topic_classes": list(self.policy.profile.thread_policy_config.allowed_topic_classes),
@@ -152,6 +154,7 @@ def parse_scout_candidates(response: dict[str, Any], query: str, source_weight: 
                 metadata={
                     "source_references": source_payloads,
                     "scout_query": query,
+                    "content_pillar": str(item.get("content_pillar") or "").strip(),
                     "source_summary": str(item.get("source_summary") or summary).strip(),
                     "public_safety_note": str(item.get("public_safety_note") or "Derived from public web sources.").strip(),
                 },

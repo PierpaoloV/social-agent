@@ -74,12 +74,14 @@ class DraftCritic:
     def _call_critic(self, batch: DraftBatch, recent_drafts: list[str]) -> dict[str, Any]:
         instructions = (
             "You are the final critic for X draft options before human Telegram review. "
+            "Use the editorial context as the account's constitution: point of view, pillars, archetypes, tone, and banned style. "
             "Revise only when the source material supports the claim. Remove private or identifying details. "
-            "Reject drafts that expose private facts, lack source support, sound like marketing, repeat recent drafts, or are too generic. "
+            "Reject drafts that expose private facts, lack source support, violate the editorial context, sound like marketing, repeat recent drafts, or are too generic. "
             "Return only JSON with key 'drafts'. Each item must include draft_id, revised_text, recommendation, scores, issues, privacy_pass, and fact_risk_pass. "
             "Scores must include privacy, fact_risk, voice_fit, novelty, and specificity from 0 to 1."
         )
         prompt = {
+            "editorial_context": self.profile.editorial_context,
             "account_identity": self.profile.account_identity,
             "tone_rules": list(self.profile.tone_rules),
             "forbidden_topics": list(self.profile.forbidden_topics),

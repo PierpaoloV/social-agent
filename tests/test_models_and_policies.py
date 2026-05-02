@@ -9,7 +9,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from social_agent.config import load_profile_config, load_seeds_config
+from social_agent.config import SeedsConfig, load_profile_config, load_seeds_config
+from social_agent.engagement import build_follow_suggestions
 from social_agent.models import DraftBatch, DraftKind, DraftOption, make_id, utc_now_iso
 from social_agent.policies import external_query_budget, is_language_allowed, is_thread_allowed
 
@@ -40,6 +41,38 @@ class ModelsAndPoliciesTest(unittest.TestCase):
     def test_external_query_budget_caps_keywords_under_strict_budget(self) -> None:
         seeds = load_seeds_config()
         self.assertEqual(external_query_budget(seeds, strict_read_budget=True), seeds.keywords[:3])
+
+    def test_seed_config_allows_must_follow_without_starter_candidates(self) -> None:
+        seeds = load_seeds_config()
+        self.assertEqual(seeds.starter_candidates, ())
+        self.assertGreaterEqual(len(seeds.must_follow), seeds.weekly_limit)
+
+    def test_follow_suggestions_use_must_follow_only(self) -> None:
+        seeds = SeedsConfig(
+            must_follow=(
+                {"handle": "must_one", "category": "research", "reason": "Must follow."},
+                {"handle": "must_two", "category": "builder", "reason": "Must follow."},
+            ),
+            starter_candidates=({"handle": "starter_one", "category": "builder", "reason": "Starter."},),
+            keywords=(),
+            follow_scoring={
+                "relevance_weight": 0.45,
+                "signal_weight": 0.35,
+                "style_fit_weight": 0.15,
+                "redundancy_penalty": 0.05,
+            },
+            weekly_limit=3,
+        )
+        handles = [suggestion.handle for suggestion in build_follow_suggestions(seeds)]
+        self.assertEqual(handles, ["must_one", "must_two"])
+
+    def test_profile_loads_editorial_context_for_prompts(self) -> None:
+        profile = load_profile_config()
+        context = profile.editorial_context
+        self.assertIn("inspectable", " ".join(context["point_of_view"]))
+        self.assertIn("viral LinkedIn cadence", context["banned_style"])
+        self.assertEqual(context["content_pillars"][0]["id"], "medical_ai_and_pathology")
+        self.assertEqual(context["post_archetypes"][0]["id"], "lesson")
 
     def test_draft_option_validation_enforces_supported_language(self) -> None:
         option = DraftOption(

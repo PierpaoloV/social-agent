@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -17,8 +18,10 @@ from social_agent.models import DraftBatch, DraftKind, DraftOption, utc_now_iso
 class FakeCriticClient:
     def __init__(self, response: dict) -> None:
         self.response = response
+        self.calls: list[dict[str, object]] = []
 
     def generate_json(self, model: str, instructions: str, prompt: str) -> dict:
+        self.calls.append({"model": model, "instructions": instructions, "prompt": json.loads(prompt)})
         return self.response
 
 
@@ -76,6 +79,36 @@ class DraftReviewTest(unittest.TestCase):
         self.assertTrue(result.accepted)
         self.assertEqual(result.batch.options[0].text, "Revised public-safe text")
         self.assertEqual(result.batch.options[0].metadata["critic_recommendation"], "accept")
+
+    def test_critic_prompt_receives_editorial_context(self) -> None:
+        profile = load_profile_config()
+        client = FakeCriticClient(
+            {
+                "drafts": [
+                    {
+                        "draft_id": "d1",
+                        "revised_text": "Revised public-safe text",
+                        "recommendation": "accept",
+                        "privacy_pass": True,
+                        "fact_risk_pass": True,
+                        "scores": {
+                            "privacy": 0.95,
+                            "fact_risk": 0.9,
+                            "voice_fit": 0.8,
+                            "novelty": 0.75,
+                            "specificity": 0.8,
+                        },
+                        "issues": [],
+                    }
+                ]
+            }
+        )
+        DraftCritic(profile=profile, openai_client=client).review_batch(_batch(), recent_drafts=[])
+        prompt = client.calls[0]["prompt"]
+        instructions = str(client.calls[0]["instructions"])
+        self.assertIn("banned style", instructions)
+        self.assertIn("workflow_automation", [pillar["id"] for pillar in prompt["editorial_context"]["content_pillars"]])
+        self.assertIn("tradeoff", [archetype["id"] for archetype in prompt["editorial_context"]["post_archetypes"]])
 
     def test_critic_rejects_all_when_scores_fail(self) -> None:
         profile = load_profile_config()

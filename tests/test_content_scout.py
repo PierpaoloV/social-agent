@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -15,7 +16,11 @@ from social_agent.models import IdeaCandidate, SourceType
 
 
 class FakeScoutClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
     def generate_json_with_web_search(self, model: str, instructions: str, prompt: str) -> dict:
+        self.calls.append({"model": model, "instructions": instructions, "prompt": json.loads(prompt)})
         return {"candidates": []}
 
 
@@ -38,11 +43,24 @@ class ContentScoutTest(unittest.TestCase):
         )
         queries = scout.build_queries([idea])
         joined = " ".join(queries).lower()
-        self.assertIn("agent engineering", joined)
+        self.assertIn("computational pathology", joined)
+        self.assertIn("medical ai interpretability", joined)
         self.assertTrue(any("agent" in query and "workflow" in query for query in queries))
         self.assertNotIn("12345", joined)
         self.assertNotIn("photo-file", joined)
         self.assertNotIn("private note", joined)
+
+    def test_scout_prompt_receives_editorial_context(self) -> None:
+        policy = load_policy()
+        client = FakeScoutClient()
+        scout = WebContentScout(policy=policy, openai_client=client)
+        scout._search_for_candidates("agent evaluation")
+        prompt = client.calls[0]["prompt"]
+        instructions = str(client.calls[0]["instructions"])
+        editorial_context = prompt["editorial_context"]
+        self.assertIn("content pillars", instructions)
+        self.assertIn("agent_engineering", [pillar["id"] for pillar in editorial_context["content_pillars"]])
+        self.assertIn("source_reflection", [archetype["id"] for archetype in editorial_context["post_archetypes"]])
 
     def test_derive_safe_query_filters_private_words(self) -> None:
         idea = IdeaCandidate(
@@ -67,6 +85,7 @@ class ContentScoutTest(unittest.TestCase):
                     "title": "Agent evaluation lessons",
                     "summary": "A concrete evaluation lesson from public agent tooling.",
                     "topic_class": "technical_breakdown",
+                    "content_pillar": "ai_evaluation",
                     "source_references": [
                         {"url": "https://example.com/a", "title": "A", "summary": "First source"},
                         {"url": "https://example.com/b", "title": "B", "summary": "Second source"},
@@ -81,6 +100,7 @@ class ContentScoutTest(unittest.TestCase):
         self.assertEqual(candidates[0].source_type, SourceType.EXTERNAL.value)
         self.assertEqual(candidates[0].metadata["source_references"][0]["url"], "https://example.com/a")
         self.assertEqual(len(candidates[0].metadata["source_references"]), 1)
+        self.assertEqual(candidates[0].metadata["content_pillar"], "ai_evaluation")
 
 
 if __name__ == "__main__":

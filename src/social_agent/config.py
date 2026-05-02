@@ -61,8 +61,44 @@ class WebScoutConfig:
 
 
 @dataclass(slots=True)
+class ContentPillar:
+    pillar_id: str
+    description: str
+    preferred_angles: tuple[str, ...]
+
+    @classmethod
+    def from_raw(cls, raw: dict[str, Any]) -> ContentPillar:
+        return cls(
+            pillar_id=str(raw["id"]),
+            description=str(raw["description"]),
+            preferred_angles=tuple(str(item) for item in raw.get("preferred_angles", [])),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.pillar_id,
+            "description": self.description,
+            "preferred_angles": list(self.preferred_angles),
+        }
+
+
+@dataclass(slots=True)
+class PostArchetype:
+    archetype_id: str
+    description: str
+
+    @classmethod
+    def from_raw(cls, raw: dict[str, Any]) -> PostArchetype:
+        return cls(archetype_id=str(raw["id"]), description=str(raw["description"]))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"id": self.archetype_id, "description": self.description}
+
+
+@dataclass(slots=True)
 class ProfileConfig:
     account_identity: str
+    point_of_view: tuple[str, ...]
     timezone: str
     draft_every_days: int
     weekly_digest_day: str
@@ -70,7 +106,10 @@ class ProfileConfig:
     allowed_post_languages: tuple[str, ...]
     allowed_reply_languages: tuple[str, ...]
     tone_rules: tuple[str, ...]
+    banned_style: tuple[str, ...]
     forbidden_topics: tuple[str, ...]
+    content_pillars: tuple[ContentPillar, ...]
+    post_archetypes: tuple[PostArchetype, ...]
     fixed_feedback_tags: tuple[str, ...]
     repo_allowlist: tuple[str, ...]
     source_weights: dict[str, float]
@@ -93,6 +132,7 @@ class ProfileConfig:
         }
         return cls(
             account_identity=str(raw["persona"]["account_identity"]),
+            point_of_view=tuple(str(item) for item in raw["persona"].get("point_of_view", [])),
             timezone=str(raw["cadence"]["timezone"]),
             draft_every_days=int(raw["cadence"]["draft_every_days"]),
             weekly_digest_day=str(raw["cadence"]["weekly_digest_day"]),
@@ -100,7 +140,10 @@ class ProfileConfig:
             allowed_post_languages=tuple(str(item) for item in raw["persona"]["voice"]["allowed_post_languages"]),
             allowed_reply_languages=tuple(str(item) for item in raw["persona"]["voice"]["allowed_reply_languages"]),
             tone_rules=tuple(str(item) for item in raw["persona"]["voice"].get("tone_rules", [])),
+            banned_style=tuple(str(item) for item in raw["persona"]["voice"].get("banned_style", [])),
             forbidden_topics=tuple(str(item) for item in raw["persona"].get("forbidden_topics", [])),
+            content_pillars=tuple(ContentPillar.from_raw(dict(item)) for item in raw.get("content_strategy", {}).get("pillars", [])),
+            post_archetypes=tuple(PostArchetype.from_raw(dict(item)) for item in raw.get("post_archetypes", [])),
             fixed_feedback_tags=tuple(str(item) for item in raw["feedback"]["fixed_tags"]),
             repo_allowlist=tuple(str(item) for item in source_policy["repo_allowlist"]),
             source_weights=normalized_weights,
@@ -118,6 +161,18 @@ class ProfileConfig:
     def thread_policy(self) -> dict[str, Any]:
         return self.thread_policy_config.to_dict()
 
+    @property
+    def editorial_context(self) -> dict[str, Any]:
+        return {
+            "account_identity": self.account_identity,
+            "point_of_view": list(self.point_of_view),
+            "tone_rules": list(self.tone_rules),
+            "banned_style": list(self.banned_style),
+            "forbidden_topics": list(self.forbidden_topics),
+            "content_pillars": [pillar.to_dict() for pillar in self.content_pillars],
+            "post_archetypes": [archetype.to_dict() for archetype in self.post_archetypes],
+        }
+
 
 @dataclass(slots=True)
 class SeedsConfig:
@@ -131,7 +186,7 @@ class SeedsConfig:
     def from_raw(cls, raw: dict[str, Any]) -> SeedsConfig:
         return cls(
             must_follow=tuple(dict(item) for item in raw["seed_accounts"]["must_follow"]),
-            starter_candidates=tuple(dict(item) for item in raw["seed_accounts"]["starter_candidates"]),
+            starter_candidates=tuple(dict(item) for item in raw["seed_accounts"].get("starter_candidates", [])),
             keywords=tuple(str(item) for item in raw["discovery"]["keywords"]),
             follow_scoring={str(key): float(value) for key, value in dict(raw["discovery"]["follow_scoring"]).items()},
             weekly_limit=int(raw["discovery"]["weekly_limit"]),
