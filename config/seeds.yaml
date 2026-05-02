@@ -22,17 +22,17 @@ seed_accounts:
     - handle: "goodfellow_ian"
       category: "research"
       reason: "Strong technical and historical AI context."
-    - handle: "radboudumc"
+    - handle: "GoogleDeepMind"
       category: "research"
-      reason: "Relevant institutional context."
-    - handle: "prinsesmaximac"
+      reason: "Useful for applied AI research and evaluation signal."
+    - handle: "ai2_allennlp"
       category: "research"
-      reason: "Relevant institutional context."
+      reason: "Useful for open research, evaluation, and tooling context."
 discovery:
   keywords:
     - "agent engineering"
-    - "medical ai"
-    - "digital pathology"
+    - "ai evaluation"
+    - "workflow automation"
     - "multimodal ai"
     - "ai research"
   follow_scoring:

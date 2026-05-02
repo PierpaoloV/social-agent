@@ -42,12 +42,15 @@ class ThreadPolicy:
 
 @dataclass(slots=True)
 class ProfileConfig:
+    account_identity: str
     timezone: str
     draft_every_days: int
     weekly_digest_day: str
     publish_window: str
     allowed_post_languages: tuple[str, ...]
     allowed_reply_languages: tuple[str, ...]
+    tone_rules: tuple[str, ...]
+    forbidden_topics: tuple[str, ...]
     fixed_feedback_tags: tuple[str, ...]
     repo_allowlist: tuple[str, ...]
     source_weights: dict[str, float]
@@ -66,12 +69,15 @@ class ProfileConfig:
             for key, value in dict(source_policy.get("source_weights", {})).items()
         }
         return cls(
+            account_identity=str(raw["persona"]["account_identity"]),
             timezone=str(raw["cadence"]["timezone"]),
             draft_every_days=int(raw["cadence"]["draft_every_days"]),
             weekly_digest_day=str(raw["cadence"]["weekly_digest_day"]),
             publish_window=str(raw["cadence"]["publish_window"]),
             allowed_post_languages=tuple(str(item) for item in raw["persona"]["voice"]["allowed_post_languages"]),
             allowed_reply_languages=tuple(str(item) for item in raw["persona"]["voice"]["allowed_reply_languages"]),
+            tone_rules=tuple(str(item) for item in raw["persona"]["voice"].get("tone_rules", [])),
+            forbidden_topics=tuple(str(item) for item in raw["persona"].get("forbidden_topics", [])),
             fixed_feedback_tags=tuple(str(item) for item in raw["feedback"]["fixed_tags"]),
             repo_allowlist=tuple(str(item) for item in source_policy["repo_allowlist"]),
             source_weights=normalized_weights,

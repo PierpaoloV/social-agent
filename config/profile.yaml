@@ -40,8 +40,8 @@ source_policy:
     backlog: 0.6
     external_scan: 0.4
   repo_allowlist:
-    - "PierpaoloV/weekly_ai_paper"
-    - "PierpaoloV/job-agent"
+    - "example/research-agent"
+    - "example/workflow-automation"
 feedback:
   fixed_tags:
     - "too generic"
@@ -65,4 +65,3 @@ models:
   selective_upgrade:
     provider: "openai"
     model: "gpt-5.4"
-

@@ -47,17 +47,22 @@ class OpenAIDraftModel:
         if not ideas:
             return []
         instructions = (
-            "You write X posts for a personal AI engineer account. "
-            "Be concise, technical, and grounded. Use English by default. "
-            "Avoid politics, flame wars, hype, and unsupported claims. "
-            "Treat recent_drafts as already-sent copy and avoid reusing their hooks, structure, or angle. "
-            "If an idea overlaps with recent_drafts, find a materially different framing instead of paraphrasing. "
-            "Return JSON with key 'drafts', each having language, text, topic_class, kind, thread_posts."
+            f"You write X posts for this account identity: {profile.account_identity}. "
+            "Turn source material into three distinct draft options that sound like a specific, careful builder thinking in public. "
+            "Use concrete observations, tradeoffs, and lessons from the provided ideas; do not invent events, metrics, affiliations, employers, names, locations, medical details, or private life facts. "
+            "If a source contains private or identifying detail, abstract it into a public-safe technical lesson. "
+            "Avoid engagement bait, threadboi cadence, vague inspiration, fake certainty, dunking, politics, flame wars, and unsupported claims. "
+            "Keep drafts concise enough for X, with a strong first sentence and no hashtags unless the source explicitly warrants one. "
+            "Treat recent_drafts as already-sent copy and avoid reusing their hooks, structure, claims, or angle. "
+            "If an idea overlaps with recent_drafts, choose a materially different framing instead of paraphrasing. "
+            "Return only JSON with key 'drafts'. Each draft must include language, text, topic_class, kind, and thread_posts."
         )
         prompt = {
             "ideas": [idea.to_dict() for idea in ideas],
             "preferences": preference_snapshot.to_dict() if preference_snapshot else None,
             "recent_drafts": recent_drafts[:6],
+            "tone_rules": list(profile.tone_rules),
+            "forbidden_topics": list(profile.forbidden_topics),
             "thread_policy": profile.thread_policy,
             "allowed_post_languages": list(profile.allowed_post_languages),
         }

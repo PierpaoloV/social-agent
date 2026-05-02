@@ -45,7 +45,7 @@ class WorkflowTest(unittest.TestCase):
             update_id=1,
             message_id=11,
             chat_id=12345,
-            text="I defended my PhD",
+            text="I shipped a research workflow demo",
             caption=None,
             photo_file_id="photo-file",
             raw={},
@@ -63,7 +63,7 @@ class WorkflowTest(unittest.TestCase):
             update_id=2,
             message_id=12,
             chat_id=12345,
-            text="I defended my PhD and I want to reflect on what it taught me about research and systems.",
+            text="I shipped a research workflow demo and I want to reflect on what it taught me about systems.",
             caption=None,
             photo_file_id="photo-file",
             raw={},
@@ -79,7 +79,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual([option["draft_id"] for option in batches[0]["options"]], ["d1", "d2", "d3"])
         self.assertEqual(len(batches[0]["options"]), 3)
         texts = [option["text"] for option in batches[0]["options"]]
-        self.assertTrue(any("PhD" in text or "research" in text for text in texts))
+        self.assertTrue(any("research" in text or "workflow" in text for text in texts))
 
     def test_run_draft_cycle_does_not_redraft_same_github_source_twice(self) -> None:
         first = run_draft_cycle(force=True)
@@ -125,8 +125,10 @@ class WorkflowTest(unittest.TestCase):
 
     def test_run_draft_cycle_passes_recent_outbound_drafts_into_prompt(self) -> None:
         prompt_payloads: list[dict[str, object]] = []
+        instructions_payloads: list[str] = []
 
         def fake_generate_json(model: str, instructions: str, prompt: str) -> dict[str, object]:
+            instructions_payloads.append(instructions)
             prompt_payloads.append(json.loads(prompt))
             return {
                 "drafts": [
@@ -175,6 +177,10 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(len(prompt_payloads), 2)
         self.assertEqual(prompt_payloads[0]["recent_drafts"], [])
         self.assertIn("Fresh framing #1", prompt_payloads[1]["recent_drafts"])
+        self.assertIn("do not invent events", instructions_payloads[0])
+        self.assertIn("public-safe technical lesson", instructions_payloads[0])
+        self.assertIn("tone_rules", prompt_payloads[0])
+        self.assertIn("forbidden_topics", prompt_payloads[0])
         store = JsonStateStore(self.state_dir)
         draft_batch_messages = [item for item in store.list("outbox") if item["kind"] == "draft_batch"]
         self.assertEqual(len(draft_batch_messages), 2)
