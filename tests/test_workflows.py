@@ -105,17 +105,32 @@ class WorkflowTest(unittest.TestCase):
         with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False):
             with patch(
                 "social_agent.openai_client.OpenAIClient.generate_json",
-                return_value={
-                    "drafts": [
-                        {
-                            "kind": "single_post",
-                            "language": "en",
-                            "topic_class": "project_milestone",
-                            "text": "Shipping practical AI systems is mostly about removing friction.",
-                            "thread_posts": [],
-                        }
-                    ]
-                },
+                side_effect=[
+                    {
+                        "drafts": [
+                            {
+                                "kind": "single_post",
+                                "language": "en",
+                                "topic_class": "project_milestone",
+                                "text": "Shipping practical AI systems is mostly about removing friction.",
+                                "thread_posts": [],
+                            }
+                        ]
+                    },
+                    {
+                        "drafts": [
+                            {
+                                "draft_id": "d1",
+                                "revised_text": "Shipping practical AI systems is mostly about removing friction.",
+                                "recommendation": "accept",
+                                "privacy_pass": True,
+                                "fact_risk_pass": True,
+                                "scores": {"privacy": 0.9, "fact_risk": 0.9, "voice_fit": 0.8, "novelty": 0.8, "specificity": 0.8},
+                                "issues": [],
+                            }
+                        ]
+                    },
+                ],
             ):
                 result = run_draft_cycle(force=True)
         self.assertEqual(result["status"], "ok")
@@ -128,16 +143,31 @@ class WorkflowTest(unittest.TestCase):
         instructions_payloads: list[str] = []
 
         def fake_generate_json(model: str, instructions: str, prompt: str) -> dict[str, object]:
-            instructions_payloads.append(instructions)
-            prompt_payloads.append(json.loads(prompt))
+            payload = json.loads(prompt)
+            if "ideas" in payload:
+                instructions_payloads.append(instructions)
+                prompt_payloads.append(payload)
+                return {
+                    "drafts": [
+                        {
+                            "kind": "original",
+                            "language": "en",
+                            "topic_class": "project_milestone",
+                            "text": f"Fresh framing #{len(prompt_payloads)}",
+                            "thread_posts": [],
+                        }
+                    ]
+                }
             return {
                 "drafts": [
                     {
-                        "kind": "original",
-                        "language": "en",
-                        "topic_class": "project_milestone",
-                        "text": f"Fresh framing #{len(prompt_payloads)}",
-                        "thread_posts": [],
+                        "draft_id": "d1",
+                        "revised_text": payload["drafts"][0]["text"],
+                        "recommendation": "accept",
+                        "privacy_pass": True,
+                        "fact_risk_pass": True,
+                        "scores": {"privacy": 0.9, "fact_risk": 0.9, "voice_fit": 0.8, "novelty": 0.8, "specificity": 0.8},
+                        "issues": [],
                     }
                 ]
             }
@@ -163,16 +193,17 @@ class WorkflowTest(unittest.TestCase):
 
         with patch.dict(os.environ, {"SOCIAL_AGENT_DRY_RUN": "false", "OPENAI_API_KEY": "test-key"}, clear=False):
             with patch("social_agent.workflows.GitHubMilestoneDetector.collect_candidates", return_value=[]):
-                with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[first_update]):
-                    process_telegram_updates()
-                with patch("social_agent.openai_client.OpenAIClient.generate_json", side_effect=fake_generate_json):
-                    with patch("social_agent.workflows.TelegramClient.send_markdown_message"):
-                        run_draft_cycle(force=True)
-                with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[second_update]):
-                    process_telegram_updates()
-                with patch("social_agent.openai_client.OpenAIClient.generate_json", side_effect=fake_generate_json):
-                    with patch("social_agent.workflows.TelegramClient.send_markdown_message"):
-                        run_draft_cycle(force=True)
+                with patch("social_agent.openai_client.OpenAIClient.generate_json_with_web_search", return_value={"candidates": []}):
+                    with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[first_update]):
+                        process_telegram_updates()
+                    with patch("social_agent.openai_client.OpenAIClient.generate_json", side_effect=fake_generate_json):
+                        with patch("social_agent.workflows.TelegramClient.send_markdown_message"):
+                            run_draft_cycle(force=True)
+                    with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[second_update]):
+                        process_telegram_updates()
+                    with patch("social_agent.openai_client.OpenAIClient.generate_json", side_effect=fake_generate_json):
+                        with patch("social_agent.workflows.TelegramClient.send_markdown_message"):
+                            run_draft_cycle(force=True)
 
         self.assertEqual(len(prompt_payloads), 2)
         self.assertEqual(prompt_payloads[0]["recent_drafts"], [])
@@ -184,6 +215,127 @@ class WorkflowTest(unittest.TestCase):
         store = JsonStateStore(self.state_dir)
         draft_batch_messages = [item for item in store.list("outbox") if item["kind"] == "draft_batch"]
         self.assertEqual(len(draft_batch_messages), 2)
+
+    def test_scout_drafter_and_critic_send_sourced_batch(self) -> None:
+        scout_response = {
+            "candidates": [
+                {
+                    "title": "Agent evaluation update",
+                    "summary": "A public source describes a concrete agent evaluation workflow lesson.",
+                    "topic_class": "technical_breakdown",
+                    "source_references": [
+                        {"url": "https://example.com/agent-eval", "title": "Agent Eval", "summary": "A sourced evaluation note."}
+                    ],
+                    "source_summary": "A public evaluation note.",
+                    "public_safety_note": "Public source only.",
+                }
+            ]
+        }
+
+        def fake_generate_json(model: str, instructions: str, prompt: str) -> dict[str, object]:
+            payload = json.loads(prompt)
+            if "ideas" in payload:
+                return {
+                    "drafts": [
+                        {
+                            "kind": "original",
+                            "language": "en",
+                            "topic_class": "technical_breakdown",
+                            "text": "A useful evaluation lesson: agent workflows need checks before demos.",
+                            "thread_posts": [],
+                        }
+                    ]
+                }
+            return {
+                "drafts": [
+                    {
+                        "draft_id": "d1",
+                        "revised_text": "Agent workflows need evaluation checks before demos, not after them.",
+                        "recommendation": "accept",
+                        "privacy_pass": True,
+                        "fact_risk_pass": True,
+                        "scores": {"privacy": 0.95, "fact_risk": 0.9, "voice_fit": 0.85, "novelty": 0.8, "specificity": 0.8},
+                        "issues": [],
+                    }
+                ]
+            }
+
+        with patch.dict(os.environ, {"SOCIAL_AGENT_DRY_RUN": "false", "OPENAI_API_KEY": "test-key"}, clear=False):
+            with patch("social_agent.workflows.GitHubMilestoneDetector.collect_candidates", return_value=[]):
+                with patch("social_agent.openai_client.OpenAIClient.generate_json_with_web_search", return_value=scout_response):
+                    with patch("social_agent.openai_client.OpenAIClient.generate_json", side_effect=fake_generate_json):
+                        with patch("social_agent.workflows.TelegramClient.send_markdown_message") as send_markdown:
+                            result = run_draft_cycle(force=True)
+
+        self.assertEqual(result["status"], "ok")
+        message_text = send_markdown.call_args.args[1]
+        self.assertIn("https://example.com/agent-eval", message_text)
+        store = JsonStateStore(self.state_dir)
+        batch = store.list("drafts")[0]
+        self.assertEqual(batch["options"][0]["text"], "Agent workflows need evaluation checks before demos, not after them.")
+        self.assertEqual(batch["options"][0]["metadata"]["source_references"][0]["url"], "https://example.com/agent-eval")
+
+    def test_missing_openai_key_does_not_attempt_web_scouting(self) -> None:
+        with patch("social_agent.content_scout.WebContentScout.collect_candidates") as collect_candidates:
+            result = run_draft_cycle(force=True)
+        self.assertEqual(result["status"], "ok")
+        collect_candidates.assert_not_called()
+
+    def test_critic_reject_all_skips_without_saving_draft_batch(self) -> None:
+        scout_response = {
+            "candidates": [
+                {
+                    "title": "Agent evaluation update",
+                    "summary": "A public source describes an agent evaluation workflow.",
+                    "topic_class": "technical_breakdown",
+                    "source_references": [{"url": "https://example.com/agent-eval", "title": "Agent Eval", "summary": "Source."}],
+                    "source_summary": "A public source.",
+                    "public_safety_note": "Public source only.",
+                }
+            ]
+        }
+
+        def fake_generate_json(model: str, instructions: str, prompt: str) -> dict[str, object]:
+            payload = json.loads(prompt)
+            if "ideas" in payload:
+                return {
+                    "drafts": [
+                        {
+                            "kind": "original",
+                            "language": "en",
+                            "topic_class": "technical_breakdown",
+                            "text": "Generic AI workflow thought.",
+                            "thread_posts": [],
+                        }
+                    ]
+                }
+            return {
+                "reason": "No draft cleared the quality threshold.",
+                "drafts": [
+                    {
+                        "draft_id": "d1",
+                        "revised_text": "Generic AI workflow thought.",
+                        "recommendation": "reject",
+                        "privacy_pass": True,
+                        "fact_risk_pass": True,
+                        "scores": {"privacy": 0.9, "fact_risk": 0.9, "voice_fit": 0.2, "novelty": 0.2, "specificity": 0.2},
+                        "issues": ["too generic"],
+                    }
+                ],
+            }
+
+        with patch.dict(os.environ, {"SOCIAL_AGENT_DRY_RUN": "false", "OPENAI_API_KEY": "test-key"}, clear=False):
+            with patch("social_agent.workflows.GitHubMilestoneDetector.collect_candidates", return_value=[]):
+                with patch("social_agent.openai_client.OpenAIClient.generate_json_with_web_search", return_value=scout_response):
+                    with patch("social_agent.openai_client.OpenAIClient.generate_json", side_effect=fake_generate_json):
+                        with patch("social_agent.workflows.TelegramClient.send_message") as send_message:
+                            result = run_draft_cycle(force=True)
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "no safe high-quality drafts")
+        self.assertIn("No safe, high-quality draft", send_message.call_args.args[1])
+        store = JsonStateStore(self.state_dir)
+        self.assertEqual(store.list("drafts"), [])
 
     def test_edit_before_approve_is_stored_for_learning(self) -> None:
         update = TelegramUpdate(

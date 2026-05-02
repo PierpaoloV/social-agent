@@ -85,6 +85,7 @@ def format_draft_batch_message(batch: dict[str, Any]) -> str:
                 f"*Option* `{option['draft_id']}`",
                 f"Kind: `{option['kind']}` | Language: `{option['language']}` | Topic: `{option['topic_class']}` | Model: `{option['model_name']}`",
                 f"Sources: {_format_sources(option['source_provenance'])}",
+                *_format_source_references(option.get("metadata", {}).get("source_references", [])),
                 option["text"],
                 "",
             ]
@@ -112,6 +113,24 @@ def _format_sources(provenance: list[str]) -> str:
             continue
         cleaned.append(item)
     return ", ".join(cleaned) if cleaned else "internal source"
+
+
+def _format_source_references(references: Any) -> list[str]:
+    if not isinstance(references, list) or not references:
+        return []
+    lines = ["Source links:"]
+    for item in references[:3]:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or item.get("url") or "source")
+        url = str(item.get("url") or "")
+        summary = str(item.get("summary") or "").strip()
+        if not url:
+            continue
+        lines.append(f"- {title}: {url}")
+        if summary:
+            lines.append(f"  {summary[:180]}")
+    return lines if len(lines) > 1 else []
 
 
 def parse_review_command(text: str) -> dict[str, Any] | None:

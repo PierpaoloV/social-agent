@@ -41,6 +41,26 @@ class ThreadPolicy:
 
 
 @dataclass(slots=True)
+class WebScoutConfig:
+    enabled: bool
+    max_queries: int
+    max_sources_per_query: int
+    max_candidates: int
+    topics: tuple[str, ...]
+
+    @classmethod
+    def from_raw(cls, raw: dict[str, Any] | None) -> WebScoutConfig:
+        raw = raw or {}
+        return cls(
+            enabled=bool(raw.get("enabled", False)),
+            max_queries=max(0, int(raw.get("max_queries", 0))),
+            max_sources_per_query=max(0, int(raw.get("max_sources_per_query", 0))),
+            max_candidates=max(0, int(raw.get("max_candidates", 0))),
+            topics=tuple(str(item) for item in raw.get("topics", [])),
+        )
+
+
+@dataclass(slots=True)
 class ProfileConfig:
     account_identity: str
     timezone: str
@@ -56,7 +76,10 @@ class ProfileConfig:
     source_weights: dict[str, float]
     strict_read_budget: bool
     thread_policy_config: ThreadPolicy
+    web_scout: WebScoutConfig
     model_name: str
+    scout_model_name: str
+    critic_model_name: str
     immediate_types: tuple[str, ...]
     queued_types: tuple[str, ...]
     draft_anchor_date: date = date(2026, 4, 23)
@@ -83,7 +106,10 @@ class ProfileConfig:
             source_weights=normalized_weights,
             strict_read_budget=bool(source_policy.get("strict_read_budget", True)),
             thread_policy_config=ThreadPolicy.from_raw(dict(raw["thread_policy"])),
+            web_scout=WebScoutConfig.from_raw(raw.get("web_scout")),
             model_name=str(raw["models"]["cheap_default"]["model"]),
+            scout_model_name=str(raw["models"].get("scout", raw["models"]["cheap_default"])["model"]),
+            critic_model_name=str(raw["models"].get("critic", raw["models"]["cheap_default"])["model"]),
             immediate_types=tuple(str(item) for item in raw["publishing"]["immediate_types"]),
             queued_types=tuple(str(item) for item in raw["publishing"]["queued_types"]),
         )

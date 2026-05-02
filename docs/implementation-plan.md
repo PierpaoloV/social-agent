@@ -30,3 +30,20 @@ Ship a public codebase that powers a private, AI-assisted X workflow with Telegr
 - Structured feedback is stored with optional note and before/after edits.
 - Weekly summary and digest artifacts are generated without writing private data to the public repo.
 
+## Upgrade: Multi-LLM Content Pipeline
+
+### When
+The upgraded content pipeline runs only during `run-drafts`, whether scheduled or manually forced. It does not run during Telegram polling, queued publishing, or weekly digest generation.
+
+### What
+The draft cycle becomes `scout -> drafter -> critic -> Telegram review`.
+
+- The scout LLM finds public, sourced idea candidates from configured web topics and safe summaries of fresh local ideas.
+- The existing drafter LLM turns ranked candidates into draft options.
+- The critic LLM revises or rejects drafts for privacy, source grounding, voice fit, novelty, and specificity before Telegram delivery.
+
+### Why
+The original pipeline could only draft from material already captured by Telegram, GitHub, or backlog state. That made drafts more likely to become stale, repetitive, or weakly sourced. The upgrade adds fresh public material and a second quality gate while keeping human approval as the publishing control.
+
+### How
+The scout uses OpenAI Responses with web search and stores source links in idea metadata. The drafter continues to produce draft batches from `IdeaCandidate` records. The critic returns revised passing drafts or a reject-all result. If no draft passes, the cycle skips and notifies the operator instead of sending a low-quality batch.

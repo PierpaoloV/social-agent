@@ -12,6 +12,7 @@ class IdeaInventory:
     policy: SocialAgentPolicy
     state: SocialAgentState
     github_source: object
+    web_scout: object | None = None
 
     def collect_fresh_ideas(self) -> list[IdeaCandidate]:
         archived_source_keys = self.state.ideas.archived_source_keys()
@@ -27,6 +28,10 @@ class IdeaInventory:
             if candidate.source_key not in archived_source_keys:
                 ideas.append(candidate)
         ideas.extend(self.state.ideas.list_reusable_backlog())
+        if self.web_scout is not None:
+            for candidate in self.web_scout.collect_candidates(ideas):
+                if candidate.source_key not in archived_source_keys:
+                    ideas.append(candidate)
         for idea in ideas:
             if idea.source_type != SourceType.BACKLOG.value:
                 self.state.ideas.save(idea)

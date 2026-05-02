@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import ProfileConfig, SeedsConfig, SocialAgentPolicy, load_policy
+from .content_scout import WebContentScout
+from .draft_review import DraftCritic, PassthroughDraftCritic
 from .drafting import DraftGenerator, HeuristicDraftModel, OpenAIDraftModel
 from .github_sources import GitHubMilestoneDetector
 from .models import OutboundMessage, make_id, utc_now_iso
@@ -94,6 +96,22 @@ class ApplicationContext:
             profile=self.profile,
             primary_model=OpenAIDraftModel(openai_client),
             fallback_model=heuristic_model,
+        )
+
+    def web_scout(self) -> WebContentScout | None:
+        if self.runtime.dry_run or not self.runtime.openai_api_key or not self.profile.web_scout.enabled:
+            return None
+        return WebContentScout(
+            policy=self.policy,
+            openai_client=OpenAIClient(self.runtime.openai_api_key, dry_run=False),
+        )
+
+    def draft_critic(self) -> DraftCritic | PassthroughDraftCritic:
+        if self.runtime.dry_run or not self.runtime.openai_api_key:
+            return PassthroughDraftCritic()
+        return DraftCritic(
+            profile=self.profile,
+            openai_client=OpenAIClient(self.runtime.openai_api_key, dry_run=False),
         )
 
 

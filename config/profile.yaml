@@ -42,6 +42,15 @@ source_policy:
   repo_allowlist:
     - "example/research-agent"
     - "example/workflow-automation"
+web_scout:
+  enabled: true
+  max_queries: 3
+  max_sources_per_query: 3
+  max_candidates: 5
+  topics:
+    - "agent engineering"
+    - "ai evaluation"
+    - "workflow automation"
 feedback:
   fixed_tags:
     - "too generic"
@@ -60,6 +69,12 @@ publishing:
     - "quote_post"
 models:
   cheap_default:
+    provider: "openai"
+    model: "gpt-5.4-mini"
+  scout:
+    provider: "openai"
+    model: "gpt-5.4-mini"
+  critic:
     provider: "openai"
     model: "gpt-5.4-mini"
   selective_upgrade:

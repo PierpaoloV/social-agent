@@ -67,7 +67,13 @@ def run_draft_cycle(force: bool = False) -> dict[str, Any]:
     app = build_application()
     if not force and not should_run_every_n_days(app.profile.timezone, app.profile.draft_every_days, app.profile.draft_anchor_date):
         return {"status": "skipped", "reason": "not scheduled day"}
-    ideas = IdeaInventory(policy=app.policy, state=app.state, github_source=app.github_detector()).collect_fresh_ideas()
+    idea_inventory = IdeaInventory(
+        policy=app.policy,
+        state=app.state,
+        github_source=app.github_detector(),
+        web_scout=app.web_scout(),
+    )
+    ideas = idea_inventory.collect_fresh_ideas()
     history = HistoryManager(app.state)
     if not ideas:
         app.notifier.send("No new source material surfaced this cycle, so I skipped drafting instead of recycling older prompts.")
@@ -83,10 +89,15 @@ def run_draft_cycle(force: bool = False) -> dict[str, Any]:
         preference_snapshot=history.latest_preference_snapshot(),
         recent_drafts=history.recent_outbound_draft_texts(),
     )
+    review = app.draft_critic().review_batch(batch, history.recent_outbound_draft_texts())
+    if not review.accepted or review.batch is None:
+        app.notifier.send(f"No safe, high-quality draft was produced this cycle. {review.reason or 'Skipping Telegram review.'}")
+        return {"status": "skipped", "reason": "no safe high-quality drafts"}
+    batch = review.batch
     if not app.runtime.openai_api_key and not app.runtime.dry_run:
         app.notifier.send("OpenAI key is missing in the workflow environment, so this batch used the heuristic fallback instead of gpt-5.4-mini.")
     app.state.drafts.save(batch)
-    IdeaInventory(policy=app.policy, state=app.state, github_source=app.github_detector()).mark_drafted(batch.idea_ids)
+    idea_inventory.mark_drafted(batch.idea_ids)
     if app.runtime.telegram_bot_token and app.runtime.telegram_chat_id:
         telegram = app.telegram_client()
         message_text = format_draft_batch_message(batch.to_dict())

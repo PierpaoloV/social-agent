@@ -257,3 +257,23 @@ Accepted
 - The system now has durable memory of what it already sent to Telegram.
 - Drafting is less likely to repeat the same hook or framing across cycles.
 - No-input periods now produce an explicit skip instead of resurfacing old content as if it were new.
+
+## 2026-05-02 (multi-LLM content pipeline)
+
+### Problem
+The draft cycle had one LLM role: turn already-collected ideas into posts. That left two gaps. First, the system could miss fresh public material unless the operator manually supplied it. Second, generated drafts went straight to Telegram without an automated privacy, source-grounding, and quality review pass.
+
+### Proposed Change
+Upgrade `run-drafts` into a staged content pipeline: a web-enabled scout LLM finds sourced public ideas, the existing drafter LLM writes draft options, and a critic LLM revises or rejects drafts before Telegram review. Keep the workflow low-cost by running the extra LLM stages only during scheduled or forced draft cycles with conservative query and candidate caps.
+
+### Actual Solution
+Implement a scout stage using OpenAI Responses web search, a critic stage that scores privacy, fact risk, voice fit, novelty, and specificity, and Telegram review messages that show compact source links for public-web candidates. If the critic finds no safe, high-quality draft, the cycle skips and notifies the operator instead of sending weak drafts.
+
+### Status
+Accepted
+
+### Impact
+- Draft cycles can use fresh, sourced public material without open-ended browsing.
+- Telegram review has visible source links for web-scouted draft ideas.
+- Draft batches get an automated privacy and quality pass before operator review.
+- Existing approval, queueing, publication, and slash-command flows stay unchanged.

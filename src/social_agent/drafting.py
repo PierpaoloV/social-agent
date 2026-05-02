@@ -20,6 +20,7 @@ class DraftProposal:
     model_name: str
     score: float
     source_provenance: list[str]
+    metadata: dict[str, object] | None = None
 
 
 class DraftModel(Protocol):
@@ -88,6 +89,7 @@ class OpenAIDraftModel:
                     model_name=profile.model_name,
                     score=0.75,
                     source_provenance=list(ideas[0].provenance if ideas else []),
+                    metadata=dict(ideas[0].metadata if ideas else {}),
                 )
             )
         return proposals
@@ -133,6 +135,7 @@ class HeuristicDraftModel:
                     model_name="heuristic-drafter",
                     score=idea.overall_score,
                     source_provenance=list(idea.provenance),
+                    metadata=dict(idea.metadata),
                 )
             )
         return proposals
@@ -185,6 +188,7 @@ class DraftGenerator:
                 created_at=utc_now_iso(),
                 model_name=proposal.model_name,
                 score=proposal.score,
+                metadata=dict(proposal.metadata or {}),
             )
             for proposal in proposals[:3]
         ]
