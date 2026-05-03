@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from typing import Any
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+
+
+class OpenAIAPIError(RuntimeError):
+    pass
 
 
 @dataclass(slots=True)
@@ -31,8 +36,11 @@ class OpenAIClient:
             },
             method="POST",
         )
-        with urlopen(request, timeout=60) as response:
-            raw = json.loads(response.read().decode("utf-8"))
+        try:
+            with urlopen(request, timeout=60) as response:
+                raw = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            raise _openai_api_error(exc) from exc
         return _extract_json_output(raw)
 
     def generate_json_with_web_search(self, model: str, instructions: str, prompt: str) -> dict[str, Any]:
@@ -40,14 +48,11 @@ class OpenAIClient:
             return {}
         payload = {
             "model": model,
-            "input": [
-                {"role": "system", "content": [{"type": "input_text", "text": instructions}]},
-                {"role": "user", "content": [{"type": "input_text", "text": prompt}]},
-            ],
-            "tools": [{"type": "web_search"}],
+            "instructions": instructions,
+            "input": prompt,
+            "tools": [{"type": "web_search", "search_context_size": "low"}],
             "tool_choice": "auto",
             "include": ["web_search_call.action.sources"],
-            "text": {"format": {"type": "json_object"}},
         }
         request = Request(
             "https://api.openai.com/v1/responses",
@@ -58,11 +63,27 @@ class OpenAIClient:
             },
             method="POST",
         )
-        with urlopen(request, timeout=90) as response:
-            raw = json.loads(response.read().decode("utf-8"))
+        try:
+            with urlopen(request, timeout=90) as response:
+                raw = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            raise _openai_api_error(exc) from exc
         parsed = _extract_json_output(raw)
         parsed.setdefault("web_sources", _extract_web_sources(raw))
         return parsed
+
+
+def _openai_api_error(exc: HTTPError) -> OpenAIAPIError:
+    detail = ""
+    if exc.fp is not None:
+        try:
+            detail = exc.fp.read().decode("utf-8", errors="replace").strip()
+        except Exception:
+            detail = ""
+    message = f"OpenAI API HTTP {exc.code}: {exc.reason}"
+    if detail:
+        message = f"{message}: {detail}"
+    return OpenAIAPIError(message)
 
 
 def _extract_json_output(raw: dict[str, Any]) -> dict[str, Any]:

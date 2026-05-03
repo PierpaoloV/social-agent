@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import io
 import os
 import sys
 import tempfile
@@ -284,6 +285,68 @@ class WorkflowTest(unittest.TestCase):
             result = run_draft_cycle(force=True)
         self.assertEqual(result["status"], "ok")
         collect_candidates.assert_not_called()
+
+    def test_web_scout_failure_degrades_to_local_ideas(self) -> None:
+        update = TelegramUpdate(
+            update_id=32,
+            message_id=132,
+            chat_id=12345,
+            text="A note about evaluating agent workflows before shipping them",
+            caption=None,
+            photo_file_id=None,
+            raw={},
+        )
+
+        def fake_generate_json(model: str, instructions: str, prompt: str) -> dict[str, object]:
+            payload = json.loads(prompt)
+            if "ideas" in payload:
+                return {
+                    "drafts": [
+                        {
+                            "kind": "original",
+                            "language": "en",
+                            "topic_class": "technical_breakdown",
+                            "text": "Evaluation belongs before the agent demo, not after it.",
+                            "thread_posts": [],
+                        }
+                    ]
+                }
+            return {
+                "drafts": [
+                    {
+                        "draft_id": "d1",
+                        "revised_text": payload["drafts"][0]["text"],
+                        "recommendation": "accept",
+                        "privacy_pass": True,
+                        "fact_risk_pass": True,
+                        "scores": {"privacy": 0.9, "fact_risk": 0.9, "voice_fit": 0.8, "novelty": 0.8, "specificity": 0.8},
+                        "issues": [],
+                    }
+                ]
+            }
+
+        scout_error = HTTPError(
+            url="https://api.openai.com/v1/responses",
+            code=400,
+            msg="Bad Request",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error":{"message":"bad web search request"}}'),
+        )
+        with patch.dict(os.environ, {"SOCIAL_AGENT_DRY_RUN": "false", "OPENAI_API_KEY": "test-key"}, clear=False):
+            with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[update]):
+                process_telegram_updates()
+            with patch("social_agent.workflows.GitHubMilestoneDetector.collect_candidates", return_value=[]):
+                with patch("social_agent.openai_client.OpenAIClient.generate_json_with_web_search", side_effect=scout_error):
+                    with patch("social_agent.openai_client.OpenAIClient.generate_json", side_effect=fake_generate_json):
+                        with patch("social_agent.workflows.TelegramClient.send_markdown_message"):
+                            result = run_draft_cycle(force=True)
+
+        self.assertEqual(result["status"], "ok")
+        store = JsonStateStore(self.state_dir)
+        self.assertEqual(len(store.list("drafts")), 1)
+        scout_runtime = store.get("runtime", "latest_web_scout_error")
+        self.assertEqual(scout_runtime["status"], "degraded")
+        self.assertEqual(scout_runtime["error_type"], "HTTPError")
 
     def test_critic_reject_all_skips_without_saving_draft_batch(self) -> None:
         scout_response = {

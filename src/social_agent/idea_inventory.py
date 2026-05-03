@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .config import SocialAgentPolicy
-from .models import IdeaCandidate, InboxItem, SourceType, make_id
+from .models import IdeaCandidate, InboxItem, SourceType, make_id, utc_now_iso
 from .state import SocialAgentState
 
 
@@ -29,7 +29,20 @@ class IdeaInventory:
                 ideas.append(candidate)
         ideas.extend(self.state.ideas.list_reusable_backlog())
         if self.web_scout is not None:
-            for candidate in self.web_scout.collect_candidates(ideas):
+            try:
+                scout_candidates = self.web_scout.collect_candidates(ideas)
+            except Exception as exc:
+                self.state.runtime.write(
+                    "latest_web_scout_error",
+                    {
+                        "status": "degraded",
+                        "created_at": utc_now_iso(),
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                )
+                scout_candidates = []
+            for candidate in scout_candidates:
                 if candidate.source_key not in archived_source_keys:
                     ideas.append(candidate)
         for idea in ideas:
