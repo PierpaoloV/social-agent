@@ -139,6 +139,54 @@ class WorkflowTest(unittest.TestCase):
         batch = store.list("drafts")[0]
         self.assertEqual(batch["options"][0]["kind"], DraftKind.ORIGINAL.value)
 
+    def test_model_scalar_thread_posts_do_not_crash_draft_cycle(self) -> None:
+        update = TelegramUpdate(
+            update_id=21,
+            message_id=121,
+            chat_id=12345,
+            text="A note about evaluating an agent workflow",
+            caption=None,
+            photo_file_id=None,
+            raw={},
+        )
+        with patch("social_agent.workflows.TelegramClient.get_updates", return_value=[update]):
+            process_telegram_updates()
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False):
+            with patch(
+                "social_agent.openai_client.OpenAIClient.generate_json",
+                side_effect=[
+                    {
+                        "drafts": [
+                            {
+                                "kind": "original",
+                                "language": "en",
+                                "topic_class": "technical_breakdown",
+                                "text": "Evaluation should happen before an agent demo, not after.",
+                                "thread_posts": 0,
+                            }
+                        ]
+                    },
+                    {
+                        "drafts": [
+                            {
+                                "draft_id": "d1",
+                                "revised_text": "Evaluation should happen before an agent demo, not after.",
+                                "recommendation": "accept",
+                                "privacy_pass": True,
+                                "fact_risk_pass": True,
+                                "scores": {"privacy": 0.9, "fact_risk": 0.9, "voice_fit": 0.8, "novelty": 0.8, "specificity": 0.8},
+                                "issues": [],
+                            }
+                        ]
+                    },
+                ],
+            ):
+                result = run_draft_cycle(force=True)
+        self.assertEqual(result["status"], "ok")
+        store = JsonStateStore(self.state_dir)
+        batch = store.list("drafts")[0]
+        self.assertEqual(batch["options"][0]["thread_posts"], [])
+
     def test_run_draft_cycle_passes_recent_outbound_drafts_into_prompt(self) -> None:
         prompt_payloads: list[dict[str, object]] = []
         instructions_payloads: list[str] = []

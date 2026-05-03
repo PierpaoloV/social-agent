@@ -71,12 +71,12 @@ class OpenAIDraftModel:
         }
         response = self.openai_client.generate_json(profile.model_name, instructions, json.dumps(prompt))
         proposals: list[DraftProposal] = []
-        for draft in response.get("drafts", [])[:3]:
+        for draft in _coerce_draft_items(response.get("drafts", []))[:3]:
             language = str(draft.get("language", "en"))
             raw_kind = str(draft.get("kind", DraftKind.ORIGINAL.value))
             kind = _normalize_kind(raw_kind)
             topic_class = str(draft.get("topic_class", ideas[0].topic_class if ideas else "general"))
-            thread_posts = [str(item) for item in draft.get("thread_posts", [])]
+            thread_posts = _coerce_thread_posts(draft.get("thread_posts", []))
             if not is_language_allowed(profile, raw_kind, language):
                 language = "en"
             if not is_thread_allowed(profile, topic_class, thread_posts):
@@ -274,3 +274,20 @@ def _normalize_kind(raw_kind: str | None) -> str:
     if normalized not in {item.value for item in DraftKind}:
         return DraftKind.ORIGINAL.value
     return normalized
+
+
+def _coerce_draft_items(payload: object) -> list[dict[str, object]]:
+    if not isinstance(payload, list):
+        return []
+    return [item for item in payload if isinstance(item, dict)]
+
+
+def _coerce_thread_posts(payload: object) -> list[str]:
+    if payload is None:
+        return []
+    if isinstance(payload, list):
+        return [str(item).strip() for item in payload if str(item).strip()]
+    if isinstance(payload, str):
+        stripped = payload.strip()
+        return [stripped] if stripped else []
+    return []
