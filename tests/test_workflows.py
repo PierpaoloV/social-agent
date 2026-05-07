@@ -18,7 +18,7 @@ if str(SRC) not in sys.path:
 from social_agent.models import DraftKind
 from social_agent.state_store import JsonStateStore
 from social_agent.telegram import TelegramUpdate
-from social_agent.workflows import generate_weekly_outputs, process_telegram_updates, publish_queued, run_draft_cycle
+from social_agent.workflows import generate_weekly_outputs, process_telegram_updates, publish_queued, retry_failed_publications, run_draft_cycle
 from social_agent.x_client import XAPIError
 
 
@@ -734,6 +734,55 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(refreshed["status"], "failed")
         self.assertEqual(refreshed["metadata"]["publish_error"]["problem_reason"], "client-not-enrolled")
         self.assertIn("approved developer account", refreshed["metadata"]["publish_error"]["detail"])
+
+    def test_retry_failed_publications_republishes_requested_posts(self) -> None:
+        store = JsonStateStore(self.state_dir)
+        store.put(
+            "publications",
+            "failed_1",
+            {
+                "publication_id": "failed_1",
+                "draft_id": "draft_original",
+                "kind": DraftKind.ORIGINAL.value,
+                "text": "Retry me",
+                "published_at": "",
+                "external_post_id": None,
+                "status": "failed",
+                "metadata": {
+                    "publish_error": {"code": 403, "reason": "Forbidden"},
+                },
+            },
+        )
+        result = retry_failed_publications(["failed_1"])
+        self.assertEqual(result["published"], 1)
+        self.assertEqual(result["failed"], 0)
+        self.assertEqual(result["errors"], [])
+        refreshed = store.get("publications", "failed_1")
+        self.assertEqual(refreshed["status"], "published")
+
+    def test_retry_failed_publications_reports_missing_and_non_failed_ids(self) -> None:
+        store = JsonStateStore(self.state_dir)
+        store.put(
+            "publications",
+            "published_1",
+            {
+                "publication_id": "published_1",
+                "draft_id": "draft_original",
+                "kind": DraftKind.ORIGINAL.value,
+                "text": "Already published",
+                "published_at": "2026-05-07T08:00:00+00:00",
+                "external_post_id": "123",
+                "status": "published",
+                "metadata": {},
+            },
+        )
+        result = retry_failed_publications(["missing_1", "published_1"])
+        self.assertEqual(result["published"], 0)
+        self.assertEqual(result["failed"], 0)
+        self.assertEqual(
+            result["errors"],
+            ["missing_1: not found", "published_1: status is published, not failed"],
+        )
 
     def test_publish_queued_skips_outside_window(self) -> None:
         store = JsonStateStore(self.state_dir)

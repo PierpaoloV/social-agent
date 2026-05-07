@@ -7,7 +7,7 @@ import traceback
 from collections.abc import Callable
 from typing import Any
 
-from .workflows import doctor, generate_weekly_outputs, process_telegram_updates, publish_queued, run_draft_cycle, send_alert
+from .workflows import doctor, generate_weekly_outputs, process_telegram_updates, publish_queued, retry_failed_publications, run_draft_cycle, send_alert
 from .models import make_id, utc_now_iso
 from .runtime import load_runtime_settings
 from .state_store import JsonStateStore
@@ -25,6 +25,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     publish_parser = subparsers.add_parser("publish-queued")
     publish_parser.add_argument("--force", action="store_true")
+
+    retry_failed_parser = subparsers.add_parser("retry-failed-publications")
+    retry_failed_parser.add_argument("publication_ids", nargs="+")
 
     weekly_parser = subparsers.add_parser("weekly-digests")
     weekly_parser.add_argument("--force", action="store_true")
@@ -80,6 +83,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_command("run-drafts", lambda: run_draft_cycle(force=args.force))
     if args.command == "publish-queued":
         return _run_command("publish-queued", lambda: publish_queued(force=args.force))
+    if args.command == "retry-failed-publications":
+        return _run_command("retry-failed-publications", lambda: retry_failed_publications(args.publication_ids))
     if args.command == "weekly-digests":
         return _run_command("weekly-digests", lambda: generate_weekly_outputs(force=args.force))
     if args.command == "alert":

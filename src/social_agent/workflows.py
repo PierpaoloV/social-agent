@@ -138,6 +138,26 @@ def publish_queued(force: bool = False) -> dict[str, Any]:
     return {"status": "ok", "published": published, "failed": failed}
 
 
+def retry_failed_publications(publication_ids: list[str]) -> dict[str, Any]:
+    app = build_application()
+    publication_manager = PublicationManager(
+        policy=app.policy,
+        state=app.state,
+        x_client=app.x_client(),
+        notifier=app.notifier,
+    )
+    published, failed, errors = publication_manager.retry_failed_publications(publication_ids)
+    if published:
+        app.notifier.send(f"Republished {published} previously failed post(s).")
+    return {
+        "status": "ok",
+        "publication_ids": publication_ids,
+        "published": published,
+        "failed": failed,
+        "errors": errors,
+    }
+
+
 def generate_weekly_outputs(force: bool = False) -> dict[str, Any]:
     app = build_application()
     local_day = now_in_timezone(app.profile.timezone).strftime("%a").upper()[:3]

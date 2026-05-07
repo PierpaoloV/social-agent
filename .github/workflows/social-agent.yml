@@ -10,9 +10,15 @@ on:
         type: choice
         options:
           - "process-and-publish"
+          - "retry-failed-publications"
           - "drafts"
           - "weekly"
           - "all"
+      publication_ids:
+        description: "Space-separated publication IDs for retry-failed-publications."
+        required: false
+        default: ""
+        type: string
   schedule:
     - cron: "*/15 * * * *"
     - cron: "0 6 * * *"
@@ -75,6 +81,10 @@ jobs:
           else
             social-agent publish-queued
           fi
+
+      - name: Retry failed publications
+        if: github.event.inputs.task == 'retry-failed-publications'
+        run: social-agent retry-failed-publications ${{ github.event.inputs.publication_ids }}
 
       - name: Generate weekly digests
         if: github.event.schedule == '0 7 * * 1' || github.event.inputs.task == 'weekly' || github.event.inputs.task == 'all'
