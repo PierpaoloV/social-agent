@@ -428,13 +428,34 @@ class PublishedPost:
         self.published_at = utc_now_iso()
         self.external_post_id = external_post_id
 
-    def mark_failed(self, code: int, reason: str) -> None:
+    def mark_failed(
+        self,
+        code: int,
+        reason: str,
+        *,
+        title: str | None = None,
+        detail: str | None = None,
+        problem_type: str | None = None,
+        problem_reason: str | None = None,
+        response_body: str | None = None,
+    ) -> None:
         self.status = "failed"
-        self.metadata["publish_error"] = {
+        payload: dict[str, Any] = {
             "code": code,
             "reason": reason,
             "failed_at": utc_now_iso(),
         }
+        if title:
+            payload["title"] = title
+        if detail:
+            payload["detail"] = detail
+        if problem_type:
+            payload["type"] = problem_type
+        if problem_reason:
+            payload["problem_reason"] = problem_reason
+        if response_body:
+            payload["response_body"] = response_body
+        self.metadata["publish_error"] = payload
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

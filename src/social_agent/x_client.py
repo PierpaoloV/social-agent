@@ -8,12 +8,56 @@ import secrets
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.error import HTTPError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 
 def _percent_encode(value: str) -> str:
     return quote(value, safe="~-._")
+
+
+@dataclass(slots=True)
+class XAPIError(RuntimeError):
+    code: int
+    reason: str
+    title: str | None = None
+    detail: str | None = None
+    problem_type: str | None = None
+    problem_reason: str | None = None
+    response_body: str | None = None
+
+    @classmethod
+    def from_http_error(cls, exc: HTTPError) -> XAPIError:
+        body_text: str | None = None
+        title: str | None = None
+        detail: str | None = None
+        problem_type: str | None = None
+        problem_reason: str | None = None
+        try:
+            raw_body = exc.read()
+        except Exception:
+            raw_body = b""
+        if raw_body:
+            body_text = raw_body.decode("utf-8", errors="replace")
+            try:
+                payload = json.loads(body_text)
+            except json.JSONDecodeError:
+                payload = None
+            if isinstance(payload, dict):
+                title = payload.get("title")
+                detail = payload.get("detail")
+                problem_type = payload.get("type")
+                problem_reason = payload.get("reason")
+        return cls(
+            code=exc.code,
+            reason=exc.reason,
+            title=title,
+            detail=detail,
+            problem_type=problem_type,
+            problem_reason=problem_reason,
+            response_body=body_text,
+        )
 
 
 @dataclass(slots=True)
@@ -62,8 +106,11 @@ class XClient:
             headers={"Authorization": header, "Content-Type": "application/json"},
             method="POST",
         )
-        with urlopen(request, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
+        try:
+            with urlopen(request, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            raise XAPIError.from_http_error(exc) from exc
 
     def search_recent_posts(self, query: str, max_results: int = 10) -> dict[str, Any]:
         if self.dry_run:

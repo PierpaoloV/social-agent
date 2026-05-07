@@ -19,6 +19,7 @@ from social_agent.models import DraftKind
 from social_agent.state_store import JsonStateStore
 from social_agent.telegram import TelegramUpdate
 from social_agent.workflows import generate_weekly_outputs, process_telegram_updates, publish_queued, run_draft_cycle
+from social_agent.x_client import XAPIError
 
 
 class WorkflowTest(unittest.TestCase):
@@ -697,6 +698,42 @@ class WorkflowTest(unittest.TestCase):
         refreshed = store.get("publications", "queued_402")
         self.assertEqual(refreshed["status"], "failed")
         self.assertEqual(refreshed["metadata"]["publish_error"]["code"], 402)
+
+    def test_publish_queued_records_structured_x_forbidden_failure(self) -> None:
+        store = JsonStateStore(self.state_dir)
+        store.put(
+            "publications",
+            "queued_403",
+            {
+                "publication_id": "queued_403",
+                "draft_id": "draft_original",
+                "kind": DraftKind.ORIGINAL.value,
+                "text": "Queued post",
+                "published_at": "",
+                "external_post_id": None,
+                "status": "queued",
+                "metadata": {},
+            },
+        )
+        with patch(
+            "social_agent.workflows.XClient.create_post",
+            side_effect=XAPIError(
+                code=403,
+                reason="Forbidden",
+                title="Client Forbidden",
+                detail="This request must be made using an approved developer account.",
+                problem_reason="client-not-enrolled",
+                problem_type="https://api.x.com/2/problems/client-forbidden",
+            ),
+        ):
+            with patch("social_agent.workflows.is_publish_window_open", return_value=True):
+                result = publish_queued()
+        self.assertEqual(result["published"], 0)
+        self.assertEqual(result["failed"], 1)
+        refreshed = store.get("publications", "queued_403")
+        self.assertEqual(refreshed["status"], "failed")
+        self.assertEqual(refreshed["metadata"]["publish_error"]["problem_reason"], "client-not-enrolled")
+        self.assertIn("approved developer account", refreshed["metadata"]["publish_error"]["detail"])
 
     def test_publish_queued_skips_outside_window(self) -> None:
         store = JsonStateStore(self.state_dir)
